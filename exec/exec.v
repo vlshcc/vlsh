@@ -220,45 +220,58 @@ fn (mut t Task) exec() !bool {
 }
 
 fn (mut t Task) run(c Cmd_object) (int) {
-	mut output := ''
-	mut child := os.new_process('$c.fullcmd')
+	mut child := os.new_process(c.fullcmd)
 
 	if c.args.len > 0 {
 		child.set_args(c.args)
 	}
 
-	child.wait()
+	// set_redirect_stdio() must be called before run()
+	if c.input != '' || c.intercept_stdio {
+		child.set_redirect_stdio()
+	}
+
+	child.run()
 
 	if c.input != '' {
-		child.set_redirect_stdio()
-		child.stdin_write('$c.input')
+		child.stdin_write(c.input)
 	}
 
-	for {
-		match child.status {
-			.exited, .aborted, .stopped {
-				utils.debug('exiting $c.cmd')
-				break
-			}
-			else {
-				utils.debug('waiting for $c.cmd')
-				println(output)
-			}
-		}
+	/*
+	Close the write-end of the stdin pipe after writing (or immediately
+	if there was no input). This signals EOF to the child so it stops
+	waiting for more input. Without this, commands like `wc` that read
+	until EOF will block forever. It also prevents interactive programs
+	like `more` from hanging on an open-but-empty stdin pipe.
+	*/
+	if c.input != '' || c.intercept_stdio {
+		C.close(child.stdio_fd[0])
+		child.stdio_fd[0] = -1
 	}
 
-	if c.intercept_stdio {
+	if c.intercept_stdio && c.next_pipe_index >= 0 {
 		/*
-		set intercepted stdout for next
-		pipe cmd in chain.
+		slurp all stdout before wait() to drain the pipe and avoid
+		deadlock. stdout_slurp() blocks until the child closes its
+		stdout (i.e. exits), then wait() reaps the process.
+		Using stdout_read() here would only capture 4096 bytes.
 		*/
-		if c.next_pipe_index >= 0 {
-			child.set_redirect_stdio()
-			output = child.stdout_read()
-			t.pipe_cmds[c.next_pipe_index].input = output
-		}
-
+		output := child.stdout_slurp()
+		child.wait()
+		t.pipe_cmds[c.next_pipe_index].input = output
+	} else if c.input != '' {
+		/*
+		last command in the pipe chain: stdout was redirected so we
+		could write to its stdin. slurp and print its output, then wait.
+		*/
+		output := child.stdout_slurp()
+		child.wait()
+		print(output)
+	} else {
+		child.wait()
 	}
+
+	child.close()
 
 	return c.next_pipe_index
 }
