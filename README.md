@@ -19,8 +19,9 @@ to read, modify, and extend.
   run pre/post hooks around every command, and provide custom tab completions.
 - **Terminal multiplexer** — built-in `mux` command splits the terminal into
   resizable panes, each running its own shell. Supports mouse selection,
-  copy/paste, a status bar, and all common VT100 sequences so editors like
-  `vim` and `nano` work correctly inside panes.
+  copy/paste, a status bar, per-pane scrollback history (up to 1000 lines,
+  scrollable via mouse wheel or `Ctrl+V`+`PageUp`/`PageDown`), and all common
+  VT100 sequences so editors like `vim` and `nano` work correctly inside panes.
 - **Native `.vsh` script support** — execute V shell scripts directly without
   invoking `v run` manually
 - **Session environment variables** — `venv add/rm/list` for temporary
@@ -413,11 +414,14 @@ Start with `mux`. A new vlsh session fills the terminal. All key sequences requi
 | `Ctrl+V` + `Ctrl+←/→` | Resize pane horizontally |
 | `Ctrl+V` + `Ctrl+↑/↓` | Resize pane vertically |
 | `Ctrl+V` + `o` | Cycle focus to the next pane |
+| `Ctrl+V` + `PageUp` | Scroll active pane back into scrollback history |
+| `Ctrl+V` + `PageDown` | Scroll active pane forward toward live output |
 | `Ctrl+V` + `q` | Exit mux (only when all panes have been closed) |
 | `Ctrl+V` + `Ctrl+V` | Send a literal Ctrl+V to the active pane |
 | Mouse click | Click a pane to make it active |
+| Mouse wheel | Scroll active pane up/down through scrollback history |
 
-Panes close automatically when their shell process exits. The terminal is fully restored on exit and a confirmation message is printed.
+Each pane retains up to 1000 lines of scrollback history. While scrolled back, an orange indicator in the top-right corner of the pane shows how many lines above live output you are. Panes close automatically when their shell process exits. The terminal is fully restored on exit and a confirmation message is printed.
 
 ### Module API summary
 
@@ -430,6 +434,11 @@ Panes close automatically when their shell process exits. The terminal is fully 
 **`mux`** – `enter()` is the public entry point; internally uses `Mux`, `Pane`, `LayoutNode`, `InputHandler`
 
 **`plugins`** – `load() []Plugin`, `set_loaded([]Plugin)`, `dispatch(…) bool`, `completions(input) []string`, `run_pre_hooks`, `run_post_hooks`, `enable(name)`, `disable(name)`, `enable_all()`, `disable_all()`
+
+
+## DISCLAIMER
+
+vlsh is provided **as-is**, without warranty of any kind. The creator and contributors are not liable for any damage, data loss, system instability, security issues, or any other consequence — direct or indirect — that may arise from using vlsh or any of its plugins. You use this software entirely at your own risk. This applies equally to the shell itself, the bundled example plugins, and any third-party plugins you install.
 
 
 ## CREDITS

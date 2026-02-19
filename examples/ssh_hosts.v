@@ -111,7 +111,9 @@ fn complete_ssh(input string) []string {
 		}
 	}
 
-	all_hosts := unique(hosts_from_config() + hosts_from_known_hosts())
+	mut combined := hosts_from_config()
+	combined << hosts_from_known_hosts()
+	all_hosts := unique(combined)
 
 	mut results := []string{}
 	for host in all_hosts {

@@ -143,10 +143,15 @@ fn help_sub(cmd string) {
 			println('  Ctrl+V + Ctrl+←/→    Resize pane horizontally')
 			println('  Ctrl+V + Ctrl+↑/↓    Resize pane vertically')
 			println('  Ctrl+V + o           Cycle focus to the next pane')
+			println('  Ctrl+V + PageUp      Scroll active pane back into scrollback history')
+			println('  Ctrl+V + PageDown    Scroll active pane forward toward live output')
 			println('  Ctrl+V + q           Quit mux mode (only when all panes closed)')
 			println('  Ctrl+V + Ctrl+V      Send literal Ctrl+V to active pane')
 			println('  Mouse click          Click a pane to make it active')
+			println('  Mouse wheel          Scroll active pane up/down through scrollback')
 			println('')
+			println('Each pane retains up to 1000 lines of scrollback history.')
+			println('An orange indicator in the top-right corner shows scroll position.')
 			println('Panes close automatically when their shell process exits.')
 		}
 		'venv' {

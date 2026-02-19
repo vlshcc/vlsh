@@ -91,16 +91,38 @@ pub fn render_all(panes []Pane, layout &LayoutNode, active_id int, term_w int, t
 
 // render_pane_sb writes pane content into the string builder, highlighting any
 // selected cells with reverse-video (SGR 7).
+// When p.scroll_offset > 0 the view is anchored into the scrollback buffer.
 fn render_pane_sb(mut sb strings.Builder, p Pane, active bool, sel Selection) {
 	if p.width <= 0 || p.height <= 0 { return }
 	_ = active // border highlight is handled by render_borders_sb
+
+	is_scrolled := p.scroll_offset > 0
+	// Index in the combined (scrollback ++ grid) buffer where the display starts.
+	// When scroll_offset == 0 this equals scrollback.len, meaning we show the
+	// live grid from the beginning.
+	scroll_start := p.scrollback.len - p.scroll_offset
+
 	for row := 0; row < p.height && row < p.grid.len; row++ {
 		sb.write_string(move_cursor(p.y + row, p.x))
 		mut prev_sgr := ''
 		mut prev_highlighted := false
-		for col := 0; col < p.width && col < p.grid[row].len; col++ {
-			cell := p.grid[row][col]
-			highlighted := sel_contains(sel, p.id, col, row)
+
+		// Resolve which row of data to display: scrollback or live grid.
+		combined_idx := scroll_start + row
+		actual_row := if combined_idx < 0 {
+			// Requested position is before the oldest scrollback row: blank.
+			[]Cell{len: p.width, init: Cell{ch: ` `}}
+		} else if combined_idx < p.scrollback.len {
+			p.scrollback[combined_idx]
+		} else {
+			grid_idx := combined_idx - p.scrollback.len
+			if grid_idx < p.grid.len { p.grid[grid_idx] } else { []Cell{len: p.width, init: Cell{ch: ` `}} }
+		}
+
+		for col := 0; col < p.width && col < actual_row.len; col++ {
+			cell := actual_row[col]
+			// Selection highlights only apply in the live view.
+			highlighted := !is_scrolled && sel_contains(sel, p.id, col, row)
 			if cell.sgr != prev_sgr || highlighted != prev_highlighted {
 				sb.write_string('\x1b[0m')
 				if highlighted {
@@ -119,6 +141,18 @@ fn render_pane_sb(mut sb strings.Builder, p Pane, active bool, sel Selection) {
 		}
 		// Reset at end of each line
 		sb.write_string('\x1b[0m')
+	}
+
+	// Scroll position indicator: rendered in the top-right corner of the pane
+	// when the user has scrolled back into the scrollback buffer.
+	if is_scrolled {
+		indicator := ' -${p.scroll_offset} lines '
+		ix := p.x + p.width - indicator.len
+		if ix >= p.x {
+			sb.write_string(move_cursor(p.y, ix))
+			// Orange background, black foreground
+			sb.write_string('\x1b[48;2;255;165;0m\x1b[30m${indicator}\x1b[0m')
+		}
 	}
 }
 

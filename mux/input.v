@@ -22,6 +22,8 @@ pub enum MuxAction {
 	mouse_left_release // left button up   — finalise selection & copy
 	mouse_motion       // motion while left button held — extend selection
 	mouse_middle_press // middle button down → paste clipboard
+	scroll_pane_up     // mouse wheel up or Ctrl+V+PageUp — scroll active pane back
+	scroll_pane_down   // mouse wheel down or Ctrl+V+PageDown — scroll active pane forward
 	none
 }
 
@@ -76,6 +78,13 @@ pub fn (mut h InputHandler) handle(bytes []u8) MuxAction {
 				h.click_col = parts[1].int() - 1 // convert to 0-based
 				h.click_row = parts[2].int() - 1
 
+				// Mouse wheel up (cb=64) / down (cb=65)
+				if cb == 64 {
+					return .scroll_pane_up
+				}
+				if cb == 65 {
+					return .scroll_pane_down
+				}
 				// Middle button
 				if cb == 1 && !is_release {
 					return .mouse_middle_press
@@ -152,6 +161,11 @@ pub fn (mut h InputHandler) handle(bytes []u8) MuxAction {
 				`D` { return .resize_left }
 				else {}
 			}
+		}
+		// Page Up (ESC [ 5 ~) / Page Down (ESC [ 6 ~)
+		if bytes.len >= 4 && bytes[3] == `~` {
+			if bytes[2] == `5` { return .scroll_pane_up }
+			if bytes[2] == `6` { return .scroll_pane_down }
 		}
 	}
 

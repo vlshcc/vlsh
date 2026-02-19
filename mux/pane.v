@@ -1,5 +1,7 @@
 module mux
 
+const scrollback_max = 1000
+
 struct Cell {
 mut:
 	ch  rune
@@ -37,6 +39,10 @@ pub mut:
 	// Alternate screen buffer (CSI ?1049h / CSI ?1049l)
 	alt_grid      [][]Cell
 	on_alt_screen bool
+	// Scrollback buffer: rows that have scrolled off the top (oldest first).
+	// scroll_offset > 0 means the user is viewing content above the live view.
+	scrollback    [][]Cell
+	scroll_offset int
 }
 
 pub fn new_pane(id int, master_fd int, pid int, x int, y int, w int, h int) Pane {
@@ -98,11 +104,42 @@ fn (mut p Pane) scroll_up() {
 	if p.height == 0 { return }
 	top := p.scroll_top
 	bot := if p.scroll_bot < p.height { p.scroll_bot } else { p.height - 1 }
+	// Save the row about to scroll off into the scrollback buffer.
+	// Only do this for full-screen scrolling (scroll_top == 0) to avoid
+	// polluting the scrollback with sub-region shifts (e.g. DECSTBM regions).
+	if top == 0 {
+		at_capacity := p.scrollback.len >= scrollback_max
+		p.scrollback << p.grid[0].clone()
+		if p.scrollback.len > scrollback_max {
+			p.scrollback.delete(0)
+		}
+		// Keep the scroll view anchored: when the buffer grows, increment
+		// scroll_offset so that scroll_start (= scrollback.len - scroll_offset)
+		// stays the same and the displayed rows don't drift.
+		if !at_capacity && p.scroll_offset > 0 {
+			p.scroll_offset++
+		}
+	}
 	for row := top + 1; row <= bot; row++ {
 		p.grid[row - 1] = p.grid[row].clone()
 	}
 	blank := Cell{ch: ` `, sgr: p.cur_sgr}
 	p.grid[bot] = []Cell{len: p.width, init: blank}
+}
+
+// view_scroll_up scrolls the viewport back by n lines, showing older content.
+pub fn (mut p Pane) view_scroll_up(n int) {
+	new_offset := p.scroll_offset + n
+	max := p.scrollback.len
+	p.scroll_offset = if new_offset > max { max } else { new_offset }
+	p.dirty = true
+}
+
+// view_scroll_down scrolls the viewport forward by n lines, toward live output.
+pub fn (mut p Pane) view_scroll_down(n int) {
+	new_offset := p.scroll_offset - n
+	p.scroll_offset = if new_offset < 0 { 0 } else { new_offset }
+	p.dirty = true
 }
 
 // scroll_down shifts rows downward within the current scroll region, adding a

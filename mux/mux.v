@@ -159,6 +159,21 @@ fn (mut m Mux) do_resize(dir SplitDir, grow bool) {
 	m.dirty = true
 }
 
+// do_scroll_pane scrolls the active pane's viewport into (up) or out of (down) scrollback.
+fn (mut m Mux) do_scroll_pane(up bool) {
+	for mut p in m.panes {
+		if p.id == m.active_id {
+			if up {
+				p.view_scroll_up(5)
+			} else {
+				p.view_scroll_down(5)
+			}
+			break
+		}
+	}
+	m.dirty = true
+}
+
 // do_cycle advances active_id to the next live pane in m.panes order.
 fn (mut m Mux) do_cycle() {
 	if m.panes.len <= 1 { return }
@@ -438,6 +453,8 @@ fn (mut m Mux) run() {
 					.mouse_motion       { m.do_mouse_motion(m.input.click_col, m.input.click_row) }
 					.mouse_left_release { m.do_mouse_left_release(m.input.click_col, m.input.click_row) }
 					.mouse_middle_press { m.do_middle_paste(m.input.click_col, m.input.click_row) }
+					.scroll_pane_up     { m.do_scroll_pane(true) }
+					.scroll_pane_down   { m.do_scroll_pane(false) }
 					.quit_mux     { break }
 					.none         {}
 				}
