@@ -1,0 +1,12 @@
+#!/bin/sh
+set -e
+
+SHELL_PATH=/usr/bin/vlsh
+
+case "$1" in
+    configure)
+        if ! grep -qxF "$SHELL_PATH" /etc/shells 2>/dev/null; then
+            echo "$SHELL_PATH" >> /etc/shells
+        fi
+        ;;
+esac

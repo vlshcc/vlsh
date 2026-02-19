@@ -1,0 +1,25 @@
+Package: vlsh
+Version: VERSION
+Architecture: ARCH
+Maintainer: David Satime Wallin <david@dwall.in>
+Homepage: https://github.com/dvwallin/vlsh
+Section: shells
+Priority: optional
+Installed-Size: INSTALLED_SIZE
+Depends: libc6
+Description: V Lang SHell — a shell written in V
+ vlsh is an interactive shell written in the V programming language.
+ .
+ Features:
+  - Pipes (cmd1 | cmd2 | cmd3)
+  - Output redirection (> and >>)
+  - AND-chain execution (cmd1 && cmd2)
+  - Tilde expansion (~ and ~/path)
+  - Per-command environment variable prefix (VAR=val cmd)
+  - Session environment variables (venv add/rm/list)
+  - Shared command history across sessions (last 5000 entries)
+  - Tab completion for files and directories
+  - Aliases (defined in ~/.vlshrc or managed at runtime)
+  - Plugin system (~/.vlsh/plugins/)
+  - Built-in terminal multiplexer (mux) with split panes
+  - Native .vsh script execution via v run

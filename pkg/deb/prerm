@@ -1,0 +1,14 @@
+#!/bin/sh
+set -e
+
+SHELL_PATH=/usr/bin/vlsh
+
+case "$1" in
+    remove|purge)
+        if [ -f /etc/shells ]; then
+            tmp=$(mktemp)
+            grep -vxF "$SHELL_PATH" /etc/shells > "$tmp" || true
+            mv "$tmp" /etc/shells
+        fi
+        ;;
+esac
