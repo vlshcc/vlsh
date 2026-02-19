@@ -268,7 +268,7 @@ Originally created by [onyxcode](https://github.com/onyxcode/vish)
 ## LICENSE
 MIT License
 
-Copyright (c) [2021] [David Satime Wallin <david@dwall.in>]
+Copyright (c) [2021-2026] [David Satime Wallin <david@snogerup.com>]
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
