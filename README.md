@@ -31,10 +31,10 @@ This list is not in any specific order and is in no way complete.
 - [x] ~~save unique commands~~
 - [x] ~~config file for aliases and paths~~
 - [x] ~~command history by using arrow keys~~
-- [ ] search command history with ctrl+r
-- [ ] plugin support
+- [x] search command history with ctrl+r
+- [x] plugin support
 - [x] ~~theme support~~
-- [ ] pipes
+- [x] pipes
 - [x] ~~create a default config file if none exists~~
 
 
