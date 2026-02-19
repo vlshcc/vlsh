@@ -26,6 +26,7 @@ pub fn help(version string, args []string) {
 		HelpEntry{'exit',    'Exit the shell.'},
 		HelpEntry{'help',    'Displays this message. Use "help <cmd>" for details.'},
 		HelpEntry{'ls',      'List directory contents (built-in colorised view).'},
+		HelpEntry{'mux',     'Enter multiplexer mode (split panes, Ctrl+A prefix).'},
 		HelpEntry{'ocp',     'Copy, overriding an existing destination file.'},
 		HelpEntry{'path',    'Manage PATH entries (list / add <dir> / remove <dir>).'},
 		HelpEntry{'plugins', 'Manage plugins (list / enable / disable / reload).'},
@@ -116,6 +117,21 @@ fn help_sub(cmd string) {
 			println('')
 			println('  ${term.bold('style list')}                      List current color settings.')
 			println('  ${term.bold('style set')} <key> <r> <g> <b>    Set a color by RGB values.')
+		}
+		'mux' {
+			println('${term.bold('mux')} - Terminal multiplexer')
+			println('')
+			println('  ${term.bold('mux')}   Enter multiplexer mode with split pane support.')
+			println('')
+			println('Key bindings (prefix: Ctrl+V):')
+			println('  Ctrl+V + |          Split current pane vertically (left/right)')
+			println('  Ctrl+V + -          Split current pane horizontally (top/bottom)')
+			println('  Ctrl+V + ←/→/↑/↓   Navigate to adjacent pane')
+			println('  Ctrl+V + Ctrl+←/→   Resize pane horizontally')
+			println('  Ctrl+V + Ctrl+↑/↓   Resize pane vertically')
+			println('  Ctrl+V + x          Close current pane')
+			println('  Ctrl+V + q          Quit mux mode (closes all panes)')
+			println('  Ctrl+V + Ctrl+V     Send literal Ctrl+V to active pane')
 		}
 		'version' {
 			println('${term.bold('version')} - Print version')

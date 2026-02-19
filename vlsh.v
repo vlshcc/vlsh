@@ -7,6 +7,7 @@ import readline { Readline }
 import cfg
 import cmds
 import exec
+import mux
 import plugins
 import utils
 
@@ -323,6 +324,13 @@ fn main_loop(input string, mut loaded_plugins []plugins.Plugin) {
 					utils.fail('path: unknown subcommand "${subcmd}" (available: list, add, remove)')
 				}
 			}
+		}
+		'mux' {
+			if os.getenv('VLSH_IN_MUX') != '' {
+				utils.fail('already inside a mux session')
+				return
+			}
+			mux.enter()
 		}
 		'plugins' {
 			subcmd := if args.len > 0 { args[0] } else { 'list' }
