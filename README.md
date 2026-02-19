@@ -230,6 +230,95 @@ for f in files {
 ```
 vlsh looks for the `v` binary in the configured `path=` directories first, then falls back to the system `PATH`.
 
+### Plugins
+
+Plugins extend vlsh with new commands and prompt decorations without modifying the shell binary.
+
+#### How plugins work
+
+1. Place a `.v` source file in `~/.vlsh/plugins/`.
+2. vlsh compiles it automatically on startup (requires `v` in PATH) and caches the binary alongside the source.
+3. The binary is called by the shell with a single argument that tells it what to do (see the protocol below).
+4. Use the built-in `plugins` command to manage them at runtime.
+
+#### Plugin protocol
+
+Your plugin's `main()` must handle these arguments:
+
+| Argument | Description |
+|----------|-------------|
+| `capabilities` | Print what the plugin provides, one item per line (see table below) |
+| `run <command> [args…]` | Execute a registered command |
+| `prompt` | Print a single line shown above the `- ` prompt |
+| `pre_hook <cmdline>` | Called before every command runs |
+| `post_hook <cmdline> <exit_code>` | Called after every command finishes |
+
+Capability tokens (printed in response to `capabilities`):
+
+| Token | Effect |
+|-------|--------|
+| `command <name>` | Registers `<name>` as a shell command dispatched via `run` |
+| `prompt` | Shell calls `prompt` before each prompt and displays the output above `- ` |
+| `pre_hook` | Shell calls `pre_hook <cmdline>` before every command |
+| `post_hook` | Shell calls `post_hook <cmdline> <exit_code>` after every command |
+
+#### Managing plugins
+
+```
+plugins list              – list all plugins in ~/.vlsh/plugins/
+plugins enable  <name>    – enable a previously disabled plugin
+plugins disable <name>    – disable a plugin without deleting it
+plugins reload            – recompile and reload all plugins
+```
+
+#### Example plugin (`examples/hello_plugin.v`)
+
+A minimal template that shows all four capabilities. Copy it to get started:
+
+```sh
+cp examples/hello_plugin.v ~/.vlsh/plugins/myplugin.v
+```
+
+It registers a `hello [name]` command, contributes a `[ example plugin ]` prompt line, and has empty `pre_hook` / `post_hook` stubs ready to be filled in.
+
+```v
+// Respond to 'capabilities'
+println('command hello')
+println('prompt')
+println('pre_hook')
+println('post_hook')
+
+// Respond to 'run hello [name]'
+println('Hello, ${name}!')
+
+// Respond to 'prompt'
+println('[ example plugin ]')
+```
+
+#### Git prompt plugin (`examples/git.v`)
+
+Shows the current git branch and short commit hash in the prompt, styled with your `style_git_bg` / `style_git_fg` colours.
+
+```sh
+cp examples/git.v ~/.vlsh/plugins/git.v
+plugins reload
+```
+
+When inside a git repository the line above the `- ` prompt becomes:
+
+```
+ main a1b2c3d
+```
+
+(coloured block using the 24-bit ANSI colour values from `~/.vlshrc`)
+
+The plugin reads colours from `~/.vlshrc`; defaults are `44,59,71` (dark blue-grey background) and `251,255,234` (near-white foreground). Override them with:
+
+```
+style set style_git_bg 44 59 71
+style set style_git_fg 251 255 234
+```
+
 ### Multiplexer (mux)
 
 Start with `mux`. A new vlsh session fills the terminal. All key sequences require the **Ctrl+V** prefix.
