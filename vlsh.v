@@ -12,7 +12,7 @@ import mux
 import plugins
 import utils
 
-const version = '1.0.0'
+const version = '1.0.1'
 
 struct Prompt {
 	mut:
@@ -146,7 +146,7 @@ fn main() {
 		if seg != '' {
 			println(seg)
 		}
-		cmd := r.read_line(term.rgb(255, 112, 112, '- ')) or {
+		cmd := vlsh_read_line(mut r, term.rgb(255, 112, 112, '- ')) or {
 			utils.fail(err.msg())
 			return
 		}

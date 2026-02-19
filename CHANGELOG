@@ -1,3 +1,27 @@
+## 2026-02-19 14:00 UTC
+
+### Bugs fixed
+
+**Backspace at column 0 deletes nothing (bug 16b)**
+- Pressing Backspace (`\x7f`) while the cursor is at position 0 on a non-empty
+  line now deletes the first character (forward-delete), instead of silently
+  doing nothing.
+- Root cause: `vlib/readline` `delete_character()` returns early when
+  `cursor <= 0`. Fix implemented without modifying vlib by replacing the
+  `r.read_line()` call with `vlsh_read_line()` — a custom readline loop defined
+  in `readline_fix.v` that uses only the public Readline API
+  (`enable_raw_mode`, `disable_raw_mode`, `read_char`, `pub mut` fields).
+
+**END key inserts tilde (bug 16)**
+- Pressing the End key on terminals that send `\x1b[4~` (VT220/rxvt) no longer
+  inserts a literal `~`; it now moves the cursor to end of line.
+- Fixed as part of the custom readline loop: `vlsh_analyse_escape()` in
+  `readline_fix.v` now handles `\x1b[4~` → `move_cursor_end`, consuming the
+  full 4-byte sequence. The standard `\x1b[F` (xterm/VTE) sequence was already
+  handled correctly.
+
+---
+
 ## 2026-02-19 12:30 UTC
 
 ### Features added
@@ -120,9 +144,6 @@
   - `vlsh_test.v`        — 8 tests for `split_and_chain`; 6 tests for
                             `venv_tracked`, `venv_track`, `venv_untrack`
 
-### Not fixed in this
+### Not fixed in this session
 
-- Bug 16: Pressing the END key inserts a tilde instead of jumping to end of
-  line. Root cause identified: V's readline (`readline_nix.c.v`) dispatches
-  on byte `2` and `3` after `ESC [` but not `4`, so `\x1b[4~` (END key)
-  leaves `~` unconsumed. Fix requires editing the V stdlib readline file.
+- (none — bugs 16 and 16b were fixed in the 2026-02-19 14:00 UTC entry above)
