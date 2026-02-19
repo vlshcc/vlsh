@@ -1,6 +1,30 @@
 # vlsh
-A shell coded in [V](https://vlang.io). Work in progress.
-Many features are missing and lots of bugs exist. Do **NOT** use for anything important or in anyway other than as a toy or experiment.
+
+**vlsh** is an interactive Unix shell written in [V](https://vlang.io). It is
+designed to be simple, fast, and hackable — with a clean codebase that is easy
+to read, modify, and extend.
+
+### Features at a glance
+
+- **Pipes, redirection, and AND-chains** — `cmd1 | cmd2`, `> file`, `>> file`, `cmd1 && cmd2`
+- **Glob expansion** — `*.v`, `./*.deb`, `~/docs/**` expanded before execution
+- **Tilde and environment-variable expansion** — `~/path`, `$VAR`, `VAR=val cmd`
+- **Command history** — up/down arrow browsing and `Ctrl+R` incremental search;
+  shared across all sessions (last 5000 entries in `~/.vlsh_history`)
+- **Tab completion** — files and directories
+- **Aliases** — defined in `~/.vlshrc` or managed live with `aliases add/remove`
+- **Plugin system** — drop a `.v` file into `~/.vlsh/plugins/`; vlsh compiles and
+  loads it automatically. Plugins can add commands, decorate the prompt, and
+  run pre/post hooks around every command.
+- **Terminal multiplexer** — built-in `mux` command splits the terminal into
+  resizable panes, each running its own shell. Supports mouse selection,
+  copy/paste, a status bar, and all common VT100 sequences so editors like
+  `vim` and `nano` work correctly inside panes.
+- **Native `.vsh` script support** — execute V shell scripts directly without
+  invoking `v run` manually
+- **Session environment variables** — `venv add/rm/list` for temporary
+  per-session variable management
+- **Theming** — prompt and UI colours configurable via `style set` and `~/.vlshrc`
 
 
 ## INSTALL
