@@ -38,6 +38,7 @@ enum VlshAction {
 	suspend
 	completion
 	history_search
+	cancel_line // Ctrl+C — clear the current line and re-prompt
 }
 
 // ── terminal helpers ──────────────────────────────────────────────────────────
@@ -178,7 +179,8 @@ fn vlsh_analyse(r Readline, c int) (VlshAction, int) {
 		return VlshAction.insert_character, c
 	}
 	match u8(c) {
-		`\0`, 0x3, 0x4, 255 { return VlshAction.eof, c }
+		`\0`, 0x4, 255 { return VlshAction.eof, c }
+		0x3            { return VlshAction.cancel_line, c } // Ctrl+C
 		`\n`, `\r` { return VlshAction.commit_line, c }
 		`\t` { return VlshAction.completion, c }
 		`\f` { return VlshAction.clear_screen, c }
@@ -388,6 +390,16 @@ fn vlsh_switch_overwrite(mut r Readline) {
 	r.overwrite = !r.overwrite
 }
 
+fn vlsh_cancel_line(mut r Readline) bool {
+	// Print visual feedback then signal cancellation via a sentinel rune.
+	// The sentinel (rune 3, i.e. the Ctrl+C character) is detected in
+	// vlsh_read_line to return error('cancelled') so main() can re-prompt.
+	print('^C\r\n')
+	r.current = [rune(3)]
+	r.cursor = 0
+	return true
+}
+
 fn vlsh_clear_screen(mut r Readline) {
 	term.set_cursor_position(x: 1, y: 1)
 	term.erase_clear()
@@ -512,6 +524,12 @@ fn vlsh_execute_search(mut r Readline, a VlshAction, c int) bool {
 			r.prompt_offset = r.search_saved_prompt_offset
 			return vlsh_commit_line(mut r)
 		}
+		.cancel_line {
+			r.search_mode = false
+			r.prompt = r.search_saved_prompt
+			r.prompt_offset = r.search_saved_prompt_offset
+			return vlsh_cancel_line(mut r)
+		}
 		else {
 			// Any other key cancels search and restores the saved line
 			r.search_mode = false
@@ -527,7 +545,8 @@ fn vlsh_execute_search(mut r Readline, a VlshAction, c int) bool {
 
 fn vlsh_execute(mut r Readline, a VlshAction, c int) bool {
 	match a {
-		.eof { return vlsh_eof(mut r) }
+		.eof         { return vlsh_eof(mut r) }
+		.cancel_line { return vlsh_cancel_line(mut r) }
 		.insert_character {
 			r.last_prefix_completion.clear()
 			vlsh_insert_character(mut r, c)
@@ -594,6 +613,11 @@ fn vlsh_read_line(mut r Readline, prompt string) !string {
 	r.previous_lines[0] = []rune{}
 	r.search_index = 0
 	r.disable_raw_mode()
+	// Ctrl+C leaves a sentinel rune(3) so we can distinguish it from an
+	// empty Enter press (both result in a short r.current after the loop).
+	if r.current.len == 1 && r.current[0] == rune(3) {
+		return error('cancelled')
+	}
 	if r.current.len == 0 {
 		return error('empty line')
 	}

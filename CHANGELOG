@@ -1,3 +1,76 @@
+## 2026-02-19 — version 1.0.3
+
+### Changes
+
+**Git prompt moved to a plugin**
+- Git branch/commit display has been removed from the main shell binary and
+  extracted into a standalone plugin (`examples/git.v`).
+- To restore git prompt display, copy `examples/git.v` to
+  `~/.vlsh/plugins/git.v`; vlsh will compile and load it automatically on the
+  next start (requires `v` in PATH).
+- The plugin reads `style_git_bg` / `style_git_fg` colours from `~/.vlshrc`
+  (defaults: `44,59,71` / `251,255,234`) and outputs a 24-bit ANSI-coloured
+  `branch commit` label above the prompt, identical to the previous built-in
+  behaviour.
+- `Prompt` struct, `update_git_info()`, and `fully_reset()` removed from
+  `vlsh.v`; `pre_prompt()` now only returns the bold current-directory line.
+
+---
+
+## 2026-02-19 — version 1.0.2
+
+### Features added
+
+**Mouse text selection in mux mode**
+- Holding the left mouse button and dragging now marks text inside a pane;
+  the selection is highlighted with reverse video.
+- Double-clicking selects the word under the cursor.
+- Middle-click pastes the current selection at the cursor position in the
+  active pane (standard X11 behaviour).
+- Upgraded mouse protocol from X10 (`?1000h`) to SGR button-event tracking
+  (`?1002h` + `?1006h`) so the terminal reports press, release and drag events
+  with full coordinate range.
+- Selection state (`sel_active`, `sel_pane_id`, start/end col/row, clipboard)
+  added to `Mux`; new handlers `do_mouse_left_press`, `do_mouse_motion`,
+  `do_mouse_left_release`, `do_middle_paste`; helpers `extract_selection_text`
+  and `word_boundaries` added to `mux/mux.v`.
+- `render_pane_sb` in `mux/render.v` now emits `\x1b[7m` (reverse video) for
+  selected cells.
+
+**Mux status bar**
+- A 1-row status bar is now displayed at the top of the terminal in mux mode.
+- Shows `vlsh mux` on the left and the live pane count on the right.
+- Default background colour: `#2c7c43` (configurable via
+  `style set style_mux_bar_bg R G B`).
+- All panes are shifted down by one row to make room; `style_mux_bar_bg`
+  added to the style defaults in `cfg/cfg.v`.
+
+### Bugs fixed
+
+**Editors (vim, nano, …) corrupted in mux panes**
+- The VT100 emulator in `mux/pane.v` was missing several sequences that
+  every full-screen editor relies on. Added:
+  - `CSI r` (DECSTBM) — scroll region; `\n` and line-wrap now respect it.
+  - `ESC M` — Reverse Index: move cursor up / scroll region down.
+  - `ESC 7` / `ESC 8` and `CSI s` / `CSI u` — cursor save/restore (DECSC/DECRC).
+  - `CSI ?1049h` / `CSI ?1049l` — alternate screen buffer (used by vim/nano
+    on entry and exit).
+  - `CSI L` / `CSI M` — Insert Line / Delete Line.
+  - `CSI P` — Delete Character.
+  - `CSI S` / `CSI T` — Scroll Up / Scroll Down.
+  - `CSI X` — Erase Character.
+  - `scroll_down()` added to support Reverse Index and `CSI T`.
+
+**Ctrl+C exits vlsh instead of clearing the input line**
+- Pressing `Ctrl+C` at the shell prompt previously mapped to `.eof` which
+  exited the shell.
+- Now mapped to a new `cancel_line` action: prints `^C`, clears the current
+  input, and causes `vlsh_read_line` to return `error('cancelled')`.
+- `main()` in `vlsh.v` catches `'cancelled'` and continues the prompt loop
+  instead of exiting.
+
+---
+
 ## 2026-02-19 14:00 UTC
 
 ### Bugs fixed

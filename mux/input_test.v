@@ -51,20 +51,22 @@ fn test_handle_prefix_then_o_cycles_pane() {
 	assert h.handle([u8(`o`)]) == .cycle_pane
 }
 
-fn test_handle_mouse_left_press_returns_mouse_click() {
+fn test_handle_mouse_left_press_returns_mouse_left_press() {
 	mut h := InputHandler{}
-	// X10: ESC [ M b x y   b=32 (left press), x=col+33, y=row+33
-	bytes := [u8(0x1b), `[`, `M`, u8(32), u8(33 + 5), u8(33 + 3)]
-	assert h.handle(bytes) == .mouse_click
-	assert h.click_col == 5
-	assert h.click_row == 3
+	// SGR format: ESC [ < 0 ; col ; row M   (1-based col/row, 0 = left button)
+	bytes := 'ESC[<0;6;4M'.replace('ESC', '\x1b').bytes()
+	assert h.handle(bytes) == .mouse_left_press
+	assert h.click_col == 5 // 6-1 = 5  (0-based)
+	assert h.click_row == 3 // 4-1 = 3  (0-based)
 }
 
-fn test_handle_mouse_release_returns_none() {
+fn test_handle_mouse_left_release_returns_mouse_left_release() {
 	mut h := InputHandler{}
-	// b=35 is release — should not trigger mouse_click
-	bytes := [u8(0x1b), `[`, `M`, u8(35), u8(33 + 5), u8(33 + 3)]
-	assert h.handle(bytes) == .none
+	// SGR release uses lowercase 'm' as terminator
+	bytes := 'ESC[<0;6;4m'.replace('ESC', '\x1b').bytes()
+	assert h.handle(bytes) == .mouse_left_release
+	assert h.click_col == 5
+	assert h.click_row == 3
 }
 
 fn test_handle_prefix_then_q_quits_mux() {

@@ -271,10 +271,11 @@ fn (mut loc_cfg Cfg) extract_style(cfd []string) ! {
 		}
 	}
 	mut default := map[string][]int{}
-	default['style_git_bg'] = [44,59,71]
-	default['style_git_fg'] = [251,255,234]
-	default['style_debug_bg'] = [44,59,71]
-	default['style_debug_fg'] = [251,255,234]
+	default['style_git_bg']      = [44, 59, 71]
+	default['style_git_fg']      = [251, 255, 234]
+	default['style_debug_bg']    = [44, 59, 71]
+	default['style_debug_fg']    = [251, 255, 234]
+	default['style_mux_bar_bg']  = [44, 124, 67] // #2c7c43
 
 	for k, v in default {
 		if k !in loc_cfg.style {

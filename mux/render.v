@@ -7,19 +7,63 @@ fn move_cursor(row int, col int) string {
 	return '\x1b[${row + 1};${col + 1}H'
 }
 
+// sel_contains reports whether the cell at (cell_col, cell_row) — in pane-relative
+// coordinates — falls within the given selection.
+fn sel_contains(sel Selection, pane_id int, cell_col int, cell_row int) bool {
+	if !sel.active || pane_id != sel.pane_id { return false }
+	mut r1 := sel.start_row
+	mut c1 := sel.start_col
+	mut r2 := sel.end_row
+	mut c2 := sel.end_col
+	// Normalise so r1/c1 is before r2/c2 in reading order
+	if r1 > r2 || (r1 == r2 && c1 > c2) {
+		r1, c1, r2, c2 = r2, c2, r1, c1
+	}
+	if cell_row < r1 || cell_row > r2       { return false }
+	if cell_row == r1 && cell_col < c1      { return false }
+	if cell_row == r2 && cell_col > c2      { return false }
+	return true
+}
+
+// render_statusbar_sb draws the 1-row status bar at the very top of the terminal.
+fn render_statusbar_sb(mut sb strings.Builder, panes []Pane, term_w int, bar_bg []int) {
+	r    := if bar_bg.len >= 1 { bar_bg[0] } else { 44 }
+	g    := if bar_bg.len >= 2 { bar_bg[1] } else { 124 }
+	b    := if bar_bg.len >= 3 { bar_bg[2] } else { 67 }
+
+	alive := panes.filter(it.alive).len
+	pane_str := if alive == 1 { '1 pane' } else { '${alive} panes' }
+
+	left  := '  vlsh mux  '
+	right := '  ${pane_str}  '
+
+	fill := term_w - left.len - right.len
+
+	sb.write_string(move_cursor(0, 0))
+	// 24-bit background colour + bright white foreground
+	sb.write_string('\x1b[48;2;${r};${g};${b}m\x1b[97m')
+	sb.write_string(left)
+	if fill > 0 {
+		sb.write_string(' '.repeat(fill))
+	}
+	sb.write_string(right)
+	sb.write_string('\x1b[0m')
+}
+
 // render_all clears and redraws everything: borders first, then pane content.
-pub fn render_all(panes []Pane, layout &LayoutNode, active_id int, term_w int, term_h int) {
+pub fn render_all(panes []Pane, layout &LayoutNode, active_id int, term_w int, term_h int, sel Selection, bar_bg []int) {
 	mut sb := strings.new_builder(term_w * term_h * 4)
 	// Hide cursor while drawing
 	sb.write_string('\x1b[?25l')
 	// Clear screen
 	sb.write_string('\x1b[2J')
 
+	render_statusbar_sb(mut sb, panes, term_w, bar_bg)
 	render_borders_sb(mut sb, layout, active_id)
 
 	for p in panes {
 		if p.alive {
-			render_pane_sb(mut sb, p, p.id == active_id)
+			render_pane_sb(mut sb, p, p.id == active_id, sel)
 		}
 	}
 
@@ -45,23 +89,27 @@ pub fn render_all(panes []Pane, layout &LayoutNode, active_id int, term_w int, t
 	C.fflush(C.stdout)
 }
 
-// render_pane_sb writes pane content into the string builder.
-fn render_pane_sb(mut sb strings.Builder, p Pane, active bool) {
+// render_pane_sb writes pane content into the string builder, highlighting any
+// selected cells with reverse-video (SGR 7).
+fn render_pane_sb(mut sb strings.Builder, p Pane, active bool, sel Selection) {
 	if p.width <= 0 || p.height <= 0 { return }
 	_ = active // border highlight is handled by render_borders_sb
 	for row := 0; row < p.height && row < p.grid.len; row++ {
 		sb.write_string(move_cursor(p.y + row, p.x))
 		mut prev_sgr := ''
+		mut prev_highlighted := false
 		for col := 0; col < p.width && col < p.grid[row].len; col++ {
 			cell := p.grid[row][col]
-			if cell.sgr != prev_sgr {
-				if cell.sgr == '' {
-					sb.write_string('\x1b[0m')
-				} else {
-					sb.write_string('\x1b[0m')
+			highlighted := sel_contains(sel, p.id, col, row)
+			if cell.sgr != prev_sgr || highlighted != prev_highlighted {
+				sb.write_string('\x1b[0m')
+				if highlighted {
+					sb.write_string('\x1b[7m') // reverse video for selection highlight
+				} else if cell.sgr != '' {
 					sb.write_string(cell.sgr)
 				}
 				prev_sgr = cell.sgr
+				prev_highlighted = highlighted
 			}
 			if cell.ch == 0 || cell.ch == rune(` `) {
 				sb.write_u8(u8(` `))
@@ -107,7 +155,7 @@ fn render_borders_sb(mut sb strings.Builder, node &LayoutNode, active_id int) {
 }
 
 // render_dirty re-renders only panes that have dirty=true.
-pub fn render_dirty(mut panes []Pane, layout &LayoutNode, active_id int, term_w int, term_h int) {
+pub fn render_dirty(mut panes []Pane, layout &LayoutNode, active_id int, term_w int, term_h int, sel Selection, bar_bg []int) {
 	mut needs_full := false
 	for p in panes {
 		if p.dirty {
@@ -116,7 +164,7 @@ pub fn render_dirty(mut panes []Pane, layout &LayoutNode, active_id int, term_w 
 		}
 	}
 	if needs_full {
-		render_all(panes, layout, active_id, term_w, term_h)
+		render_all(panes, layout, active_id, term_w, term_h, sel, bar_bg)
 		for mut p in panes {
 			p.dirty = false
 		}

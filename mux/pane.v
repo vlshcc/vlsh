@@ -27,23 +27,35 @@ pub mut:
 	// UTF-8 multi-byte accumulator
 	utf8_buf  []u8
 	utf8_rem  int
+	// Scroll region (DECSTBM): rows are 0-based.  Default covers full pane.
+	scroll_top int
+	scroll_bot int
+	// Saved cursor state (ESC 7 / ESC 8 / CSI s / CSI u)
+	saved_cur_x   int
+	saved_cur_y   int
+	saved_cur_sgr string
+	// Alternate screen buffer (CSI ?1049h / CSI ?1049l)
+	alt_grid      [][]Cell
+	on_alt_screen bool
 }
 
 pub fn new_pane(id int, master_fd int, pid int, x int, y int, w int, h int) Pane {
 	mut grid := [][]Cell{len: h, init: []Cell{len: w, init: Cell{ch: ` `}}}
 	return Pane{
-		id:        id
-		master_fd: master_fd
-		pid:       pid
-		x:         x
-		y:         y
-		width:     w
-		height:    h
-		grid:      grid
-		cur_x:     0
-		cur_y:     0
-		alive:     true
-		dirty:     true
+		id:         id
+		master_fd:  master_fd
+		pid:        pid
+		x:          x
+		y:          y
+		width:      w
+		height:     h
+		grid:       grid
+		cur_x:      0
+		cur_y:      0
+		alive:      true
+		dirty:      true
+		scroll_top: 0
+		scroll_bot: h - 1
 	}
 }
 
@@ -52,7 +64,7 @@ pub fn (mut p Pane) resize(x int, y int, w int, h int) {
 	p.y      = y
 	p.width  = w
 	p.height = h
-	// Rebuild grid preserving as much content as possible
+	// Rebuild main grid preserving as much content as possible
 	mut new_grid := [][]Cell{len: h, init: []Cell{len: w, init: Cell{ch: ` `}}}
 	for row := 0; row < h && row < p.grid.len; row++ {
 		for col := 0; col < w && col < p.grid[row].len; col++ {
@@ -64,34 +76,70 @@ pub fn (mut p Pane) resize(x int, y int, w int, h int) {
 	p.cur_y = if p.cur_y >= h { h - 1 } else { p.cur_y }
 	if p.cur_x < 0 { p.cur_x = 0 }
 	if p.cur_y < 0 { p.cur_y = 0 }
+	// Reset scroll region to full pane on resize
+	p.scroll_top = 0
+	p.scroll_bot = h - 1
+	// Resize alt_grid too if it exists
+	if p.alt_grid.len > 0 {
+		mut new_alt := [][]Cell{len: h, init: []Cell{len: w, init: Cell{ch: ` `}}}
+		for row := 0; row < h && row < p.alt_grid.len; row++ {
+			for col := 0; col < w && col < p.alt_grid[row].len; col++ {
+				new_alt[row][col] = p.alt_grid[row][col]
+			}
+		}
+		p.alt_grid = new_alt
+	}
 	p.dirty = true
 }
 
-// scroll_up shifts all rows up by one, adding a blank row at the bottom.
+// scroll_up shifts rows upward within the current scroll region, adding a
+// blank row at the bottom of the region.
 fn (mut p Pane) scroll_up() {
 	if p.height == 0 { return }
-	for row := 1; row < p.height; row++ {
+	top := p.scroll_top
+	bot := if p.scroll_bot < p.height { p.scroll_bot } else { p.height - 1 }
+	for row := top + 1; row <= bot; row++ {
 		p.grid[row - 1] = p.grid[row].clone()
 	}
 	blank := Cell{ch: ` `, sgr: p.cur_sgr}
-	p.grid[p.height - 1] = []Cell{len: p.width, init: blank}
+	p.grid[bot] = []Cell{len: p.width, init: blank}
+}
+
+// scroll_down shifts rows downward within the current scroll region, adding a
+// blank row at the top of the region (used by Reverse Index / ESC M).
+fn (mut p Pane) scroll_down() {
+	if p.height == 0 { return }
+	top := p.scroll_top
+	bot := if p.scroll_bot < p.height { p.scroll_bot } else { p.height - 1 }
+	for row := bot; row > top; row-- {
+		p.grid[row] = p.grid[row - 1].clone()
+	}
+	blank := Cell{ch: ` `, sgr: p.cur_sgr}
+	p.grid[top] = []Cell{len: p.width, init: blank}
 }
 
 // put_char writes ch at cur_x/cur_y with current SGR, then advances cursor.
+// Line wrapping respects the active scroll region.
 fn (mut p Pane) put_char(ch rune) {
 	if p.height == 0 || p.width == 0 { return }
-	if p.cur_y >= p.height {
+	bot := if p.scroll_bot < p.height { p.scroll_bot } else { p.height - 1 }
+	// If the cursor ended up below the scroll region somehow, scroll it back.
+	if p.cur_y > bot {
 		p.scroll_up()
-		p.cur_y = p.height - 1
+		p.cur_y = bot
 	}
+	// Line wrap
 	if p.cur_x >= p.width {
 		p.cur_x = 0
-		p.cur_y++
-		if p.cur_y >= p.height {
+		if p.cur_y == bot {
 			p.scroll_up()
-			p.cur_y = p.height - 1
+			// cur_y stays at bot after the scroll
+		} else {
+			p.cur_y++
+			if p.cur_y >= p.height { p.cur_y = p.height - 1 }
 		}
 	}
+	if p.cur_y < 0 { p.cur_y = 0 }
 	p.grid[p.cur_y][p.cur_x] = Cell{ch: ch, sgr: p.cur_sgr}
 	p.cur_x++
 }
@@ -209,6 +257,76 @@ fn (mut p Pane) handle_escape(seq string) {
 					}
 				}
 			}
+			`X` {
+				// Erase Character: fill n chars at cursor with space (cursor doesn't move)
+				n := if params_str != '' { params_str.int() } else { 1 }
+				count := if n < 1 { 1 } else { n }
+				if p.cur_y < p.height {
+					blank := Cell{ch: ` `, sgr: p.cur_sgr}
+					for col := p.cur_x; col < p.cur_x + count && col < p.width; col++ {
+						p.grid[p.cur_y][col] = blank
+					}
+				}
+			}
+			`L` {
+				// Insert Line: insert n blank lines at cursor row within scroll region
+				n     := if params_str != '' { params_str.int() } else { 1 }
+				count := if n < 1 { 1 } else { n }
+				bot   := if p.scroll_bot < p.height { p.scroll_bot } else { p.height - 1 }
+				blank := Cell{ch: ` `, sgr: ''}
+				for i := 0; i < count; i++ {
+					// Shift rows down within the scroll region, dropping the bottom row
+					for row := bot; row > p.cur_y; row-- {
+						p.grid[row] = p.grid[row - 1].clone()
+					}
+					p.grid[p.cur_y] = []Cell{len: p.width, init: blank}
+				}
+				p.cur_x = 0
+			}
+			`M` {
+				// Delete Line: delete n lines at cursor row within scroll region
+				n     := if params_str != '' { params_str.int() } else { 1 }
+				count := if n < 1 { 1 } else { n }
+				bot   := if p.scroll_bot < p.height { p.scroll_bot } else { p.height - 1 }
+				blank := Cell{ch: ` `, sgr: ''}
+				for i := 0; i < count; i++ {
+					for row := p.cur_y + 1; row <= bot; row++ {
+						p.grid[row - 1] = p.grid[row].clone()
+					}
+					p.grid[bot] = []Cell{len: p.width, init: blank}
+				}
+				p.cur_x = 0
+			}
+			`P` {
+				// Delete Character: delete n chars at cursor, shift line left, fill end
+				n     := if params_str != '' { params_str.int() } else { 1 }
+				count := if n < 1 { 1 } else { n }
+				if p.cur_y < p.height {
+					for col := p.cur_x; col < p.width - count; col++ {
+						if col + count < p.grid[p.cur_y].len {
+							p.grid[p.cur_y][col] = p.grid[p.cur_y][col + count]
+						}
+					}
+					blank := Cell{ch: ` `, sgr: ''}
+					for col := p.width - count; col < p.width; col++ {
+						if col >= 0 && col < p.grid[p.cur_y].len {
+							p.grid[p.cur_y][col] = blank
+						}
+					}
+				}
+			}
+			`S` {
+				// Scroll Up: scroll region up by n lines
+				n     := if params_str != '' { params_str.int() } else { 1 }
+				count := if n < 1 { 1 } else { n }
+				for i := 0; i < count; i++ { p.scroll_up() }
+			}
+			`T` {
+				// Scroll Down: scroll region down by n lines
+				n     := if params_str != '' { params_str.int() } else { 1 }
+				count := if n < 1 { 1 } else { n }
+				for i := 0; i < count; i++ { p.scroll_down() }
+			}
 			`m` {
 				// SGR — store verbatim
 				if params_str == '' || params_str == '0' {
@@ -217,17 +335,63 @@ fn (mut p Pane) handle_escape(seq string) {
 					p.cur_sgr = '\x1b[${params_str}m'
 				}
 			}
-			`h`, `l` {
-				// Mode set/reset (e.g., ?25h show cursor, ?25l hide cursor) — ignore
-			}
 			`r` {
-				// Set Scrolling Region — ignore for now
+				// DECSTBM — Set Scrolling Region: CSI top ; bot r  (1-based)
+				parts := params_str.split(';')
+				top := if parts.len > 0 && parts[0] != '' { parts[0].int() - 1 } else { 0 }
+				bot := if parts.len > 1 && parts[1] != '' { parts[1].int() - 1 } else { p.height - 1 }
+				p.scroll_top = if top >= 0 { top } else { 0 }
+				p.scroll_bot = if bot > top && bot < p.height { bot } else { p.height - 1 }
+				// DECSTBM always moves cursor to home
+				p.cur_x = 0
+				p.cur_y = 0
 			}
 			`s` {
-				// Save cursor position — ignore
+				// Save cursor position (ANSI)
+				p.saved_cur_x   = p.cur_x
+				p.saved_cur_y   = p.cur_y
+				p.saved_cur_sgr = p.cur_sgr
 			}
 			`u` {
-				// Restore cursor position — ignore
+				// Restore cursor position (ANSI)
+				p.cur_x   = p.saved_cur_x
+				p.cur_y   = p.saved_cur_y
+				p.cur_sgr = p.saved_cur_sgr
+			}
+			`h` {
+				// Mode set — only handle alternate screen; ignore everything else
+				if params_str == '?1049' || params_str == '?1047' {
+					if !p.on_alt_screen {
+						p.saved_cur_x   = p.cur_x
+						p.saved_cur_y   = p.cur_y
+						p.saved_cur_sgr = p.cur_sgr
+						p.alt_grid      = p.grid
+						p.grid          = [][]Cell{len: p.height, init: []Cell{len: p.width, init: Cell{ch: ` `}}}
+						p.on_alt_screen = true
+						p.cur_x         = 0
+						p.cur_y         = 0
+						p.cur_sgr       = ''
+						p.scroll_top    = 0
+						p.scroll_bot    = p.height - 1
+					}
+				}
+				// all other ?NNNh modes (cursor visibility, mouse, etc.) — ignore
+			}
+			`l` {
+				// Mode reset — only handle alternate screen; ignore everything else
+				if params_str == '?1049' || params_str == '?1047' {
+					if p.on_alt_screen {
+						p.grid          = p.alt_grid
+						p.alt_grid      = [][]Cell{}
+						p.on_alt_screen = false
+						p.cur_x         = p.saved_cur_x
+						p.cur_y         = p.saved_cur_y
+						p.cur_sgr       = p.saved_cur_sgr
+						p.scroll_top    = 0
+						p.scroll_bot    = p.height - 1
+					}
+				}
+				// all other ?NNNl modes — ignore
 			}
 			else {
 				// Unknown sequence — discard
@@ -236,9 +400,32 @@ fn (mut p Pane) handle_escape(seq string) {
 		return
 	}
 
-	// ESC ( B  etc. — character set — ignore
-	// ESC = / > — keypad mode — ignore
-	// ESC 7 / 8 — save/restore cursor — ignore
+	// Non-CSI two-byte ESC sequences
+	match seq {
+		'M' {
+			// Reverse Index (RI): move cursor up; if at scroll_top, scroll region down
+			if p.cur_y == p.scroll_top {
+				p.scroll_down()
+			} else if p.cur_y > 0 {
+				p.cur_y--
+			}
+		}
+		'7' {
+			// DECSC — Save cursor + SGR
+			p.saved_cur_x   = p.cur_x
+			p.saved_cur_y   = p.cur_y
+			p.saved_cur_sgr = p.cur_sgr
+		}
+		'8' {
+			// DECRC — Restore cursor + SGR
+			p.cur_x   = p.saved_cur_x
+			p.cur_y   = p.saved_cur_y
+			p.cur_sgr = p.saved_cur_sgr
+		}
+		else {
+			// ESC ( B, ESC =, ESC >, etc. — character set / keypad mode — ignore
+		}
+	}
 }
 
 // utf8_seq_len returns the total byte count for a UTF-8 sequence starting with b,
@@ -354,10 +541,14 @@ pub fn (mut p Pane) feed(data []u8) {
 				p.cur_x = 0
 			}
 			`\n` {
-				p.cur_y++
-				if p.cur_y >= p.height {
+				// Newline respects the active scroll region.
+				bot := if p.scroll_bot < p.height { p.scroll_bot } else { p.height - 1 }
+				if p.cur_y == bot {
 					p.scroll_up()
-					p.cur_y = p.height - 1
+					// cursor row stays at bot
+				} else {
+					p.cur_y++
+					if p.cur_y >= p.height { p.cur_y = p.height - 1 }
 				}
 			}
 			`\b` {
