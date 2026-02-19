@@ -118,18 +118,6 @@ I'm using vlsh as my daily shell. That does not mean you should be.
 It is likely that you will run into bugs when using vlsh.
 
 
-## TODO
-This list is not in any specific order and is in no way complete.
-- [x] ~~save unique commands~~
-- [x] ~~config file for aliases and paths~~
-- [x] ~~command history by using arrow keys~~
-- [x] search command history with ctrl+r
-- [x] plugin support
-- [x] ~~theme support~~
-- [x] pipes
-- [x] ~~create a default config file if none exists~~
-
-
 ## CONFIG
 vlsh will look for the configuration file `$HOME/.vlshrc`.
 Here's an example -file:
