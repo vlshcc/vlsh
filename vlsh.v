@@ -12,7 +12,7 @@ import mux
 import plugins
 import utils
 
-const version = '1.0.10'
+const version = '1.0.11'
 
 fn pre_prompt() string {
 	mut current_dir := term.colorize(term.bold, '$os.getwd() ')
@@ -439,7 +439,7 @@ fn dispatch_cmd(cmd string, args []string, mut loaded_plugins []plugins.Plugin) 
 				utils.fail('already inside a mux session')
 				return 1
 			}
-			mux.enter()
+			mux.enter(plugins.mux_status_binaries(loaded_plugins))
 		}
 		'plugins' {
 			subcmd := if args.len > 0 { args[0] } else { 'list' }

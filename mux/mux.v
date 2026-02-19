@@ -2,6 +2,7 @@ module mux
 
 import os
 import strings
+import time
 import cfg
 
 // Selection represents the current text selection within a pane.
@@ -28,6 +29,10 @@ mut:
 	dirty     bool
 	// Status-bar background colour [r, g, b]
 	bar_bg    []int
+	// Plugin-supplied status bar text
+	status_providers  []string
+	status_text       string
+	status_last_ms    i64
 	// Text selection state
 	sel_active    bool
 	sel_pane_id   int
@@ -39,7 +44,10 @@ mut:
 }
 
 // enter is the public entry point for the multiplexer.
-pub fn enter() {
+// status_providers is a list of plugin binary paths that implement the
+// mux_status capability; they are polled roughly every second and their
+// output is displayed in the centre of the status bar.
+pub fn enter(status_providers []string) {
 	if os.getenv('VLSH_IN_MUX') != '' {
 		println('mux: already inside a mux session')
 		return
@@ -67,12 +75,13 @@ pub fn enter() {
 	}
 
 	mut m := Mux{
-		term_w:    cols
-		term_h:    rows
-		orig_term: orig
-		next_id:   1
-		dirty:     true
-		bar_bg:    bar_bg
+		term_w:           cols
+		term_h:           rows
+		orig_term:        orig
+		next_id:          1
+		dirty:            true
+		bar_bg:           bar_bg
+		status_providers: status_providers
 	}
 
 	if !m.spawn_first_pane() {
@@ -401,6 +410,26 @@ fn (m &Mux) current_selection() Selection {
 	}
 }
 
+// refresh_status_text polls each mux_status plugin binary and updates
+// m.status_text.  Sets m.dirty if the text changed.
+fn (mut m Mux) refresh_status_text() {
+	mut parts := []string{}
+	for bin in m.status_providers {
+		result := os.execute('${bin} mux_status')
+		if result.exit_code == 0 {
+			t := result.output.trim_space()
+			if t != '' {
+				parts << t
+			}
+		}
+	}
+	new_text := parts.join('  ')
+	if new_text != m.status_text {
+		m.status_text = new_text
+		m.dirty = true
+	}
+}
+
 fn (mut m Mux) run() {
 	mut buf := []u8{len: 4096}
 
@@ -479,6 +508,15 @@ fn (mut m Mux) run() {
 
 		if m.panes.len == 0 { break }
 
+		// Poll mux_status plugins roughly once per second.
+		if m.status_providers.len > 0 {
+			now_ms := time.now().unix_milli()
+			if now_ms - m.status_last_ms >= 1000 {
+				m.refresh_status_text()
+				m.status_last_ms = now_ms
+			}
+		}
+
 		// Handle terminal resize
 		if check_sigwinch() {
 			rows, cols := get_term_size()
@@ -492,11 +530,11 @@ fn (mut m Mux) run() {
 		// Render
 		sel := m.current_selection()
 		if m.dirty {
-			render_all(m.panes, &m.layout, m.active_id, m.term_w, m.term_h, sel, m.bar_bg)
+			render_all(m.panes, &m.layout, m.active_id, m.term_w, m.term_h, sel, m.bar_bg, m.status_text)
 			for mut p in m.panes { p.dirty = false }
 			m.dirty = false
 		} else {
-			render_dirty(mut m.panes, &m.layout, m.active_id, m.term_w, m.term_h, sel, m.bar_bg)
+			render_dirty(mut m.panes, &m.layout, m.active_id, m.term_w, m.term_h, sel, m.bar_bg, m.status_text)
 		}
 	}
 }

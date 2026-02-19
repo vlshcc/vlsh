@@ -1,3 +1,35 @@
+## 2026-02-19 — version 1.0.11
+
+### Features added
+
+**Plugin mux status bar hook (`mux_status` capability)**
+- Plugins can now contribute text to the centre of the mux status bar by
+  declaring the `mux_status` capability and handling the `mux_status` argument.
+- The mux polls each capable plugin binary roughly once per second while mux is
+  active and displays the joined output centred between the fixed `vlsh mux`
+  (left) and pane-count (right) labels. Multiple plugins' outputs are separated
+  by two spaces. The text is truncated to fit if the terminal is too narrow.
+- `has_mux_status bool` added to the `Plugin` struct in `plugins/plugins.v`;
+  parsed in `plugins.load()` alongside the existing capability tokens.
+- New `mux_status_binaries(loaded []Plugin) []string` helper in
+  `plugins/plugins.v` returns the binary paths of all `mux_status`-capable
+  plugins, ready to be passed to `mux.enter()`.
+- `mux.enter()` signature changed to `enter(status_providers []string)`.
+  The providers are stored on `Mux` and polled via the new
+  `refresh_status_text()` method in `mux/mux.v`.
+- `render_statusbar_sb`, `render_all`, and `render_dirty` in `mux/render.v`
+  each gain a `status_text string` parameter; the status bar renders the text
+  centred in the fill region when it is non-empty.
+- `vlsh.v` passes `plugins.mux_status_binaries(loaded_plugins)` to
+  `mux.enter()` so the live plugin list is always used.
+- `examples/hello_plugin.v` updated: `mux_status` added to the capabilities
+  block and a matching handler stub prints `[ example plugin ]`.
+- Version bumped to `1.0.11` in `vlsh.v` and `v.mod`.
+- Packages rebuilt: `builds/vlsh_1.0.11_amd64.deb` and
+  `builds/vlsh_1.0.11_amd64_linux`.
+
+---
+
 ## 2026-02-19 — version 1.0.10
 
 ### Changes

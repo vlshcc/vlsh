@@ -26,7 +26,9 @@ fn sel_contains(sel Selection, pane_id int, cell_col int, cell_row int) bool {
 }
 
 // render_statusbar_sb draws the 1-row status bar at the very top of the terminal.
-fn render_statusbar_sb(mut sb strings.Builder, panes []Pane, term_w int, bar_bg []int) {
+// status_text is optional plugin-supplied content shown centred between the left
+// and right fixed labels; pass an empty string to omit it.
+fn render_statusbar_sb(mut sb strings.Builder, panes []Pane, term_w int, bar_bg []int, status_text string) {
 	r    := if bar_bg.len >= 1 { bar_bg[0] } else { 44 }
 	g    := if bar_bg.len >= 2 { bar_bg[1] } else { 124 }
 	b    := if bar_bg.len >= 3 { bar_bg[2] } else { 67 }
@@ -44,21 +46,36 @@ fn render_statusbar_sb(mut sb strings.Builder, panes []Pane, term_w int, bar_bg 
 	sb.write_string('\x1b[48;2;${r};${g};${b}m\x1b[97m')
 	sb.write_string(left)
 	if fill > 0 {
-		sb.write_string(' '.repeat(fill))
+		if status_text != '' {
+			// Centre the plugin text inside the available fill space.
+			s := '  ${status_text}  '
+			if s.len <= fill {
+				left_pad  := (fill - s.len) / 2
+				right_pad := fill - s.len - left_pad
+				sb.write_string(' '.repeat(left_pad))
+				sb.write_string(s)
+				sb.write_string(' '.repeat(right_pad))
+			} else {
+				// Not enough room — truncate to fit.
+				sb.write_string(s[..fill])
+			}
+		} else {
+			sb.write_string(' '.repeat(fill))
+		}
 	}
 	sb.write_string(right)
 	sb.write_string('\x1b[0m')
 }
 
 // render_all clears and redraws everything: borders first, then pane content.
-pub fn render_all(panes []Pane, layout &LayoutNode, active_id int, term_w int, term_h int, sel Selection, bar_bg []int) {
+pub fn render_all(panes []Pane, layout &LayoutNode, active_id int, term_w int, term_h int, sel Selection, bar_bg []int, status_text string) {
 	mut sb := strings.new_builder(term_w * term_h * 4)
 	// Hide cursor while drawing
 	sb.write_string('\x1b[?25l')
 	// Clear screen
 	sb.write_string('\x1b[2J')
 
-	render_statusbar_sb(mut sb, panes, term_w, bar_bg)
+	render_statusbar_sb(mut sb, panes, term_w, bar_bg, status_text)
 	render_borders_sb(mut sb, layout, active_id)
 
 	for p in panes {
@@ -189,7 +206,7 @@ fn render_borders_sb(mut sb strings.Builder, node &LayoutNode, active_id int) {
 }
 
 // render_dirty re-renders only panes that have dirty=true.
-pub fn render_dirty(mut panes []Pane, layout &LayoutNode, active_id int, term_w int, term_h int, sel Selection, bar_bg []int) {
+pub fn render_dirty(mut panes []Pane, layout &LayoutNode, active_id int, term_w int, term_h int, sel Selection, bar_bg []int, status_text string) {
 	mut needs_full := false
 	for p in panes {
 		if p.dirty {
@@ -198,7 +215,7 @@ pub fn render_dirty(mut panes []Pane, layout &LayoutNode, active_id int, term_w 
 		}
 	}
 	if needs_full {
-		render_all(panes, layout, active_id, term_w, term_h, sel, bar_bg)
+		render_all(panes, layout, active_id, term_w, term_h, sel, bar_bg, status_text)
 		for mut p in panes {
 			p.dirty = false
 		}

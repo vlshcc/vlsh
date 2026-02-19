@@ -11,11 +11,14 @@
 //                             prompt           contributes a line above the prompt
 //                             pre_hook         called before every command
 //                             post_hook        called after every command
+//                             mux_status       contributes text to the mux status bar
 //
 //   run <command> [args]  — run a registered command
 //   prompt                — print a single line shown above the '- ' prompt
 //   pre_hook  <cmdline>   — notification before a command runs
 //   post_hook <cmdline> <exit_code>   — notification after a command finishes
+//   mux_status            — print a single line shown in the mux status bar centre
+//                           (polled roughly once per second while mux is active)
 
 module main
 
@@ -30,6 +33,7 @@ fn main() {
 			println('prompt')
 			println('pre_hook')
 			println('post_hook')
+			println('mux_status')
 		}
 		'run' {
 			cmd := if os.args.len > 2 { os.args[2] } else { '' }
@@ -59,6 +63,12 @@ fn main() {
 			// Called after every command completes.
 			_ = cmdline
 			_ = exit_code
+		}
+		'mux_status' {
+			// Return a single line shown in the centre of the mux status bar.
+			// This is called roughly once per second while mux is active.
+			// Leave empty (or remove 'mux_status' from capabilities) if not needed.
+			println('[ example plugin ]')
 		}
 		else {}
 	}

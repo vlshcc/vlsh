@@ -19,13 +19,14 @@ struct GHFile {
 // Plugin holds the discovered capabilities of a compiled plugin.
 pub struct Plugin {
 pub mut:
-	name           string
-	binary         string
-	commands       []string
-	has_prompt     bool
-	has_pre_hook   bool
-	has_post_hook  bool
-	has_completion bool
+	name            string
+	binary          string
+	commands        []string
+	has_prompt      bool
+	has_pre_hook    bool
+	has_post_hook   bool
+	has_completion  bool
+	has_mux_status  bool
 }
 
 // completions asks every completion-capable plugin for suggestions given the
@@ -212,6 +213,8 @@ pub fn load() []Plugin {
 				plugin.has_post_hook = true
 			} else if t == 'completion' {
 				plugin.has_completion = true
+			} else if t == 'mux_status' {
+				plugin.has_mux_status = true
 			}
 		}
 
@@ -289,6 +292,18 @@ pub fn run_post_hooks(loaded []Plugin, cmdline string, exit_code int) {
 		child.wait()
 		child.close()
 	}
+}
+
+// mux_status_binaries returns the binary paths of all loaded plugins that declare
+// the mux_status capability.  The mux module uses these to poll for status bar text.
+pub fn mux_status_binaries(loaded []Plugin) []string {
+	mut bins := []string{}
+	for p in loaded {
+		if p.has_mux_status {
+			bins << p.binary
+		}
+	}
+	return bins
 }
 
 // remote_available fetches the list of plugin names available in the remote repository.

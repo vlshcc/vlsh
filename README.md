@@ -16,7 +16,8 @@ to read, modify, and extend.
 - **Aliases** — defined in `~/.vlshrc` or managed live with `aliases add/remove`
 - **Plugin system** — drop a `.v` file into `~/.vlsh/plugins/`; vlsh compiles and
   loads it automatically. Plugins can add commands, decorate the prompt,
-  run pre/post hooks around every command, and provide custom tab completions.
+  run pre/post hooks around every command, provide custom tab completions, and
+  contribute live text to the mux status bar (`mux_status` capability).
   Browse, install, and delete plugins from the official remote repository at
   https://github.com/vlshcc/plugins using `plugins remote`, `plugins install`,
   and `plugins delete`.
@@ -36,14 +37,14 @@ to read, modify, and extend.
 
 ### Pre-built packages (recommended)
 
-The latest release is **v1.0.10**. Pre-built packages for 64-bit Linux are
+The latest release is **v1.0.11**. Pre-built packages for 64-bit Linux are
 available on the [releases page](https://github.com/DavidSatimeWallin/vlsh/releases).
 
 **Debian / Ubuntu — install via `.deb`:**
 
 ```sh
-curl -LO https://github.com/DavidSatimeWallin/vlsh/releases/download/v1.0.10/vlsh_1.0.10_amd64.deb
-sudo dpkg -i vlsh_1.0.10_amd64.deb
+curl -LO https://github.com/DavidSatimeWallin/vlsh/releases/download/v1.0.11/vlsh_1.0.11_amd64.deb
+sudo dpkg -i vlsh_1.0.11_amd64.deb
 ```
 
 The package installs the binary to `/usr/bin/vlsh` and automatically adds it
@@ -52,9 +53,9 @@ to `/etc/shells` via the postinst script.
 **Other Linux — standalone binary:**
 
 ```sh
-curl -LO https://github.com/DavidSatimeWallin/vlsh/releases/download/v1.0.10/vlsh_1.0.10_amd64_linux
-chmod +x vlsh_1.0.10_amd64_linux
-sudo mv vlsh_1.0.10_amd64_linux /usr/local/bin/vlsh
+curl -LO https://github.com/DavidSatimeWallin/vlsh/releases/download/v1.0.11/vlsh_1.0.11_amd64_linux
+chmod +x vlsh_1.0.11_amd64_linux
+sudo mv vlsh_1.0.11_amd64_linux /usr/local/bin/vlsh
 ```
 
 ### Prerequisites (from source)
@@ -298,6 +299,7 @@ Your plugin's `main()` must handle these arguments:
 | `pre_hook <cmdline>` | Called before every command runs |
 | `post_hook <cmdline> <exit_code>` | Called after every command finishes |
 | `complete <input>` | Print one tab-completion candidate per line for the current input |
+| `mux_status` | Print a single line shown centred in the mux status bar (polled ~1 s) |
 
 Capability tokens (printed in response to `capabilities`):
 
@@ -308,6 +310,7 @@ Capability tokens (printed in response to `capabilities`):
 | `pre_hook` | Shell calls `pre_hook <cmdline>` before every command |
 | `post_hook` | Shell calls `post_hook <cmdline> <exit_code>` after every command |
 | `completion` | Shell calls `complete <input>` on Tab; plugin prints full replacement strings |
+| `mux_status` | Shell calls `mux_status` roughly once per second in mux mode; plugin prints a single line that appears centred in the status bar |
 
 #### Managing plugins
 
@@ -337,7 +340,7 @@ A minimal template that shows all four capabilities. Copy it to get started:
 cp examples/hello_plugin.v ~/.vlsh/plugins/myplugin.v
 ```
 
-It registers a `hello [name]` command, contributes a `[ example plugin ]` prompt line, and has empty `pre_hook` / `post_hook` stubs ready to be filled in.
+It registers a `hello [name]` command, contributes a `[ example plugin ]` prompt line, has empty `pre_hook` / `post_hook` stubs ready to be filled in, and demonstrates the `mux_status` capability with a static label.
 
 ```v
 // Respond to 'capabilities'
@@ -345,11 +348,15 @@ println('command hello')
 println('prompt')
 println('pre_hook')
 println('post_hook')
+println('mux_status')
 
 // Respond to 'run hello [name]'
 println('Hello, ${name}!')
 
 // Respond to 'prompt'
+println('[ example plugin ]')
+
+// Respond to 'mux_status'
 println('[ example plugin ]')
 ```
 
@@ -463,6 +470,8 @@ Start with `mux`. A new vlsh session fills the terminal. All key sequences requi
 
 Each pane retains up to 1000 lines of scrollback history. While scrolled back, an orange indicator in the top-right corner of the pane shows how many lines above live output you are. Panes close automatically when their shell process exits. The terminal is fully restored on exit and a confirmation message is printed.
 
+The status bar at the top shows `vlsh mux` on the left and the live pane count on the right. Plugins that declare the `mux_status` capability contribute text that is displayed centred between those labels and refreshed roughly once per second.
+
 ### Module API summary
 
 **`cfg`** – `get() !Cfg`, `paths() ![]string`, `aliases() !map[string]string`, `style() !map[string][]int`, `add_path`, `remove_path`, `add_alias`, `remove_alias`, `set_style`
@@ -471,9 +480,9 @@ Each pane retains up to 1000 lines of scrollback history. While scrolled back, a
 
 **`utils`** – `parse_args(string) []string` tokenises a command line respecting single/double quotes; `fail/warn/ok/debug` for formatted output
 
-**`mux`** – `enter()` is the public entry point; internally uses `Mux`, `Pane`, `LayoutNode`, `InputHandler`
+**`mux`** – `enter(status_providers []string)` is the public entry point; internally uses `Mux`, `Pane`, `LayoutNode`, `InputHandler`
 
-**`plugins`** – `load() []Plugin`, `dispatch(…) bool`, `completions(loaded, input) []string`, `run_pre_hooks`, `run_post_hooks`, `enable(name)`, `disable(name)`, `enable_all()`, `disable_all()`, `remote_available() ![]string`, `install(name) !`, `delete_plugin(name) !`
+**`plugins`** – `load() []Plugin`, `dispatch(…) bool`, `completions(loaded, input) []string`, `run_pre_hooks`, `run_post_hooks`, `prompt_segments(loaded) string`, `mux_status_binaries(loaded) []string`, `enable(name)`, `disable(name)`, `enable_all()`, `disable_all()`, `remote_available() ![]string`, `install(name) !`, `delete_plugin(name) !`
 
 
 ## DISCLAIMER
