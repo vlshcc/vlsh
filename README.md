@@ -18,8 +18,9 @@ to read, modify, and extend.
   into versioned directories under `~/.vlsh/plugins/<name>/<version>/`; vlsh
   compiles them automatically. Plugins can add commands, decorate the prompt,
   run pre/post hooks around every command, capture command output via the
-  `output_hook` capability, provide custom tab completions, and contribute live
-  text to the mux status bar (`mux_status` capability).
+  `output_hook` capability, provide custom tab completions, contribute live
+  text to the mux status bar (`mux_status` capability), and expose their own
+  help text via the `help` capability (surfaced through the built-in `help` command).
   Search plugins by name or description with `plugins search`, install the
   latest version with `plugins install`, keep them up to date with
   `plugins update`, and remove them with `plugins delete`. The official
@@ -253,7 +254,7 @@ All instances share a global history file at `~/.vlsh_history` (last 5000 entrie
 
 **Tab completion** – completes file and directory names. When the command is `cd`, only directories are suggested. Plugins can register a `completion` capability to provide custom completions for their commands (e.g. SSH hostnames for `ssh`).
 
-**Plugins** – installed from the remote repository into versioned directories under `~/.vlsh/plugins/<name>/<version>/`. Each plugin can expose commands, pre/post-run hooks, output capture hooks (`output_hook`), prompt decorations, and custom tab completions.
+**Plugins** – installed from the remote repository into versioned directories under `~/.vlsh/plugins/<name>/<version>/`. Each plugin can expose commands, pre/post-run hooks, output capture hooks (`output_hook`), prompt decorations, custom tab completions, and help text (`help` capability) shown by the built-in `help` command.
 
 **Aliases** – defined in `~/.vlshrc` or managed with the `aliases` built-in; resolved before PATH lookup.
 
@@ -305,6 +306,7 @@ Your plugin's `main()` must handle these arguments:
 | `output_hook <cmdline> <exit_code> <output>` | Called after every command; `<output>` is the captured stdout (empty for interactive/direct-terminal commands not in a pipe chain) |
 | `complete <input>` | Print one tab-completion candidate per line for the current input |
 | `mux_status` | Print a single line shown centred in the mux status bar (polled ~1 s) |
+| `help [command]` | Print help text for the plugin or a specific command (called by the built-in `help` command) |
 
 Capability tokens (printed in response to `capabilities`):
 
@@ -317,6 +319,7 @@ Capability tokens (printed in response to `capabilities`):
 | `output_hook` | Shell calls `output_hook <cmdline> <exit_code> <output>` after every command with the captured stdout |
 | `completion` | Shell calls `complete <input>` on Tab; plugin prints full replacement strings |
 | `mux_status` | Shell calls `mux_status` roughly once per second in mux mode; plugin prints a single line that appears centred in the status bar |
+| `help` | Shell calls `help [command]` when the user runs `help <cmd>` and the plugin owns that command; plugin prints its own help text |
 
 #### Managing plugins
 
@@ -348,19 +351,27 @@ A minimal template that shows all capabilities. Copy it to get started:
 cp examples/hello_plugin.v ~/.vlsh/plugins/myplugin.v
 ```
 
-It registers a `hello [name]` command, contributes a `[ example plugin ]` prompt line, has empty `pre_hook` / `post_hook` / `output_hook` stubs ready to be filled in, and demonstrates the `mux_status` capability with a static label.
+It registers a `hello [name]` command, contributes a `[ example plugin ]` prompt line, has empty `pre_hook` / `post_hook` / `output_hook` stubs ready to be filled in, demonstrates the `mux_status` capability with a static label, and implements the `help` capability so that `help hello` prints usage text.
 
 ```v
 // Respond to 'capabilities'
 println('command hello')
+println('help')
 println('prompt')
 println('pre_hook')
 println('post_hook')
-println('output_hook')
 println('mux_status')
 
 // Respond to 'run hello [name]'
 println('Hello, ${name}!')
+
+// Respond to 'help [command]'
+println('hello - greet someone (example plugin command)')
+println('')
+println('Usage:')
+println('  hello [name]   Print "Hello, <name>!"')
+println('')
+println('If name is omitted, greets "world".')
 
 // Respond to 'prompt'
 println('[ example plugin ]')
