@@ -1,3 +1,50 @@
+## 2026-02-20 — version 1.1.1
+
+### Features added
+
+**`output_hook` plugin capability**
+- Plugins can now capture the stdout of every command by declaring the
+  `output_hook` capability. The shell invokes the plugin binary as:
+  `<binary> output_hook <cmdline> <exit_code> <output>`
+  where `<output>` is the captured stdout of the command.
+- Output is captured for pipe-chain commands (the final stage that receives
+  piped input) and for the built-in `echo` command. Direct-terminal commands
+  (interactive programs such as `vim` or `htop`, and plain non-piped
+  commands) pass an empty string so that TTY behaviour is never broken.
+- `has_output_hook bool` added to the `Plugin` struct in `plugins/plugins.v`;
+  parsed in `plugins.load()` alongside the existing capability tokens.
+- New `run_output_hooks(loaded []Plugin, cmdline string, exit_code int,
+  output string)` function in `plugins/plugins.v`; invoked from
+  `dispatch_cmd()` in `vlsh.v` after every external command, the `echo`
+  built-in, and the system-`ls` fallthrough path.
+- `last_output string` field added to `exec.Task`; populated in `run()` when
+  the final pipe-stage output is naturally captured.
+- `dispatch_cmd()` in `vlsh.v` gains a `full_cmdline string` parameter so
+  hooks see the original unsplit input rather than a reconstructed string.
+
+**New example plugin: `examples/output_log.v`**
+- Demonstrates `output_hook` by recording a timestamped block per command
+  (header + captured stdout) to `~/.vlsh/output.log`.
+- Registers two shell commands:
+  - `output_search <pattern>` — grep the log for entries matching a pattern
+  - `output_log_clear` — wipe the log file
+- Skips empty commands and internal plugin-management invocations to keep
+  the log clean.
+
+### Documentation
+
+- `README.md` updated: feature bullets, plugin-system paragraph, plugin
+  protocol tables (`output_hook` argument and capability token rows),
+  example-plugin snippet, new `output_log` plugin section, module API
+  summary (`run_output_hooks` added).
+- `help plugins` updated in `cmds/cmds.v`: capabilities block added listing
+  all six capability tokens including `output_hook`.
+- `examples/hello_plugin.v` protocol header updated with `output_hook`
+  argument documentation.
+- Version bumped to `1.1.1` in `vlsh.v` and `v.mod`.
+
+---
+
 ## 2026-02-20 — version 1.1.0
 
 ### Features added

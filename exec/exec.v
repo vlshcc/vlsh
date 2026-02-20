@@ -102,6 +102,13 @@ pub struct Task {
 	child process that was run.
 	*/
 	last_exit_code int
+	/*
+	last_output holds the stdout that was captured from the last command
+	in the pipeline.  It is populated when output was naturally intercepted
+	(e.g. the final stage of a pipe chain received piped input).  For
+	commands that run directly on the terminal it remains empty.
+	*/
+	last_output string
 }
 
 pub fn (mut t Task) prepare_task() !int {
@@ -368,6 +375,7 @@ fn (mut t Task) run(c Cmd_object) (int) {
 		output := child.stdout_slurp()
 		child.wait()
 		t.last_exit_code = child.code
+		t.last_output = output
 		print(output)
 	} else {
 		child.wait()

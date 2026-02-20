@@ -17,8 +17,9 @@ to read, modify, and extend.
 - **Plugin system** — plugins are installed from the official remote repository
   into versioned directories under `~/.vlsh/plugins/<name>/<version>/`; vlsh
   compiles them automatically. Plugins can add commands, decorate the prompt,
-  run pre/post hooks around every command, provide custom tab completions, and
-  contribute live text to the mux status bar (`mux_status` capability).
+  run pre/post hooks around every command, capture command output via the
+  `output_hook` capability, provide custom tab completions, and contribute live
+  text to the mux status bar (`mux_status` capability).
   Search plugins by name or description with `plugins search`, install the
   latest version with `plugins install`, keep them up to date with
   `plugins update`, and remove them with `plugins delete`. The official
@@ -39,14 +40,14 @@ to read, modify, and extend.
 
 ### Pre-built packages (recommended)
 
-The latest release is **v1.1.0**. Pre-built packages for 64-bit Linux are
+The latest release is **v1.1.1**. Pre-built packages for 64-bit Linux are
 available on the [releases page](https://github.com/DavidSatimeWallin/vlsh/releases).
 
 **Debian / Ubuntu — install via `.deb`:**
 
 ```sh
-curl -LO https://github.com/DavidSatimeWallin/vlsh/releases/download/v1.1.0/vlsh_1.1.0_amd64.deb
-sudo dpkg -i vlsh_1.1.0_amd64.deb
+curl -LO https://github.com/DavidSatimeWallin/vlsh/releases/download/v1.1.1/vlsh_1.1.1_amd64.deb
+sudo dpkg -i vlsh_1.1.1_amd64.deb
 ```
 
 The package installs the binary to `/usr/bin/vlsh` and automatically adds it
@@ -55,9 +56,9 @@ to `/etc/shells` via the postinst script.
 **Other Linux — standalone binary:**
 
 ```sh
-curl -LO https://github.com/DavidSatimeWallin/vlsh/releases/download/v1.1.0/vlsh_1.1.0_amd64_linux
-chmod +x vlsh_1.1.0_amd64_linux
-sudo mv vlsh_1.1.0_amd64_linux /usr/local/bin/vlsh
+curl -LO https://github.com/DavidSatimeWallin/vlsh/releases/download/v1.1.1/vlsh_1.1.1_amd64_linux
+chmod +x vlsh_1.1.1_amd64_linux
+sudo mv vlsh_1.1.1_amd64_linux /usr/local/bin/vlsh
 ```
 
 ### Prerequisites (from source)
@@ -252,7 +253,7 @@ All instances share a global history file at `~/.vlsh_history` (last 5000 entrie
 
 **Tab completion** – completes file and directory names. When the command is `cd`, only directories are suggested. Plugins can register a `completion` capability to provide custom completions for their commands (e.g. SSH hostnames for `ssh`).
 
-**Plugins** – installed from the remote repository into versioned directories under `~/.vlsh/plugins/<name>/<version>/`. Each plugin can expose commands, pre/post-run hooks, prompt decorations, and custom tab completions.
+**Plugins** – installed from the remote repository into versioned directories under `~/.vlsh/plugins/<name>/<version>/`. Each plugin can expose commands, pre/post-run hooks, output capture hooks (`output_hook`), prompt decorations, and custom tab completions.
 
 **Aliases** – defined in `~/.vlshrc` or managed with the `aliases` built-in; resolved before PATH lookup.
 
@@ -301,6 +302,7 @@ Your plugin's `main()` must handle these arguments:
 | `prompt` | Print a single line shown above the `- ` prompt |
 | `pre_hook <cmdline>` | Called before every command runs |
 | `post_hook <cmdline> <exit_code>` | Called after every command finishes |
+| `output_hook <cmdline> <exit_code> <output>` | Called after every command; `<output>` is the captured stdout (empty for interactive/direct-terminal commands not in a pipe chain) |
 | `complete <input>` | Print one tab-completion candidate per line for the current input |
 | `mux_status` | Print a single line shown centred in the mux status bar (polled ~1 s) |
 
@@ -312,6 +314,7 @@ Capability tokens (printed in response to `capabilities`):
 | `prompt` | Shell calls `prompt` before each prompt and displays the output above `- ` |
 | `pre_hook` | Shell calls `pre_hook <cmdline>` before every command |
 | `post_hook` | Shell calls `post_hook <cmdline> <exit_code>` after every command |
+| `output_hook` | Shell calls `output_hook <cmdline> <exit_code> <output>` after every command with the captured stdout |
 | `completion` | Shell calls `complete <input>` on Tab; plugin prints full replacement strings |
 | `mux_status` | Shell calls `mux_status` roughly once per second in mux mode; plugin prints a single line that appears centred in the status bar |
 
@@ -339,13 +342,13 @@ installing a plugin, run `plugins reload` to compile and activate it.
 
 #### Example plugin (`examples/hello_plugin.v`)
 
-A minimal template that shows all four capabilities. Copy it to get started:
+A minimal template that shows all capabilities. Copy it to get started:
 
 ```sh
 cp examples/hello_plugin.v ~/.vlsh/plugins/myplugin.v
 ```
 
-It registers a `hello [name]` command, contributes a `[ example plugin ]` prompt line, has empty `pre_hook` / `post_hook` stubs ready to be filled in, and demonstrates the `mux_status` capability with a static label.
+It registers a `hello [name]` command, contributes a `[ example plugin ]` prompt line, has empty `pre_hook` / `post_hook` / `output_hook` stubs ready to be filled in, and demonstrates the `mux_status` capability with a static label.
 
 ```v
 // Respond to 'capabilities'
@@ -353,6 +356,7 @@ println('command hello')
 println('prompt')
 println('pre_hook')
 println('post_hook')
+println('output_hook')
 println('mux_status')
 
 // Respond to 'run hello [name]'
@@ -360,6 +364,9 @@ println('Hello, ${name}!')
 
 // Respond to 'prompt'
 println('[ example plugin ]')
+
+// Respond to 'output_hook <cmdline> <exit_code> <output>'
+// os.args[2] = cmdline, os.args[3] = exit code, os.args[4] = captured stdout
 
 // Respond to 'mux_status'
 println('[ example plugin ]')
@@ -440,6 +447,24 @@ What it does:
 3. Opens the result in `less -R` (or `more` if `less` is unavailable). Falls
    back to printing directly if neither pager is found.
 
+#### Output log plugin (`examples/output_log.v`)
+
+`output_log` uses the `output_hook` capability to record every command and its captured stdout to `~/.vlsh/output.log`, one timestamped block per command. It also registers two commands: `output_search <pattern>` to grep through the log from within the shell, and `output_log_clear` to wipe it.
+
+```sh
+mkdir -p ~/.vlsh/plugins/output_log/v1.0.0
+cp examples/output_log.v ~/.vlsh/plugins/output_log/v1.0.0/output_log.v
+plugins reload
+```
+
+Usage:
+```
+output_search error       # find all log blocks containing "error"
+output_log_clear          # wipe the log
+```
+
+> **Note:** output is captured only for commands run through a pipe chain or the `echo` built-in. Interactive programs (`vim`, `htop`, etc.) and simple direct-terminal commands log a header with an empty body, preserving the timeline without breaking TTY behaviour.
+
 #### Share plugin (`plugins/share.v`)
 
 `share` uploads a file to [dpaste.com](https://dpaste.com) and prints the resulting URL. It is available as a plugin in the official repository.
@@ -487,7 +512,7 @@ The status bar at the top shows `vlsh mux` on the left and the live pane count o
 
 **`mux`** – `enter(status_providers []string)` is the public entry point; internally uses `Mux`, `Pane`, `LayoutNode`, `InputHandler`
 
-**`plugins`** – `load() []Plugin`, `installed_list() []InstalledPlugin`, `available() []string`, `dispatch(…) bool`, `completions(loaded, input) []string`, `run_pre_hooks`, `run_post_hooks`, `prompt_segments(loaded) string`, `mux_status_binaries(loaded) []string`, `enable(name)`, `disable(name)`, `enable_all()`, `disable_all()`, `remote_plugin_names() ![]string`, `remote_versions(name) ![]string`, `latest_remote_version(name) !string`, `fetch_desc(name) !PluginDesc`, `install(name) !string`, `update_plugin(name) !string`, `delete_plugin(name) !`, `search_remote(query) ![]PluginDesc`
+**`plugins`** – `load() []Plugin`, `installed_list() []InstalledPlugin`, `available() []string`, `dispatch(…) bool`, `completions(loaded, input) []string`, `run_pre_hooks`, `run_post_hooks`, `run_output_hooks(loaded, cmdline, exit_code, output)`, `prompt_segments(loaded) string`, `mux_status_binaries(loaded) []string`, `enable(name)`, `disable(name)`, `enable_all()`, `disable_all()`, `remote_plugin_names() ![]string`, `remote_versions(name) ![]string`, `latest_remote_version(name) !string`, `fetch_desc(name) !PluginDesc`, `install(name) !string`, `update_plugin(name) !string`, `delete_plugin(name) !`, `search_remote(query) ![]PluginDesc`
 
 
 ## DISCLAIMER

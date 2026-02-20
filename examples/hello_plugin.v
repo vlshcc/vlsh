@@ -11,12 +11,17 @@
 //                             prompt           contributes a line above the prompt
 //                             pre_hook         called before every command
 //                             post_hook        called after every command
+//                             output_hook      called after every command with its captured stdout
 //                             mux_status       contributes text to the mux status bar
 //
 //   run <command> [args]  — run a registered command
 //   prompt                — print a single line shown above the '- ' prompt
 //   pre_hook  <cmdline>   — notification before a command runs
 //   post_hook <cmdline> <exit_code>   — notification after a command finishes
+//   output_hook <cmdline> <exit_code> <output>
+//                         — called after every command; <output> is the captured
+//                           stdout (may be empty for interactive/direct-terminal
+//                           commands that were not piped through the shell)
 //   mux_status            — print a single line shown in the mux status bar centre
 //                           (polled roughly once per second while mux is active)
 

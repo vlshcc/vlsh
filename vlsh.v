@@ -12,7 +12,7 @@ import mux
 import plugins
 import utils
 
-const version = '1.1.0'
+const version = '1.1.1'
 
 fn pre_prompt() string {
 	mut current_dir := term.colorize(term.bold, '$os.getwd() ')
@@ -250,7 +250,8 @@ fn venv_untrack(key string) {
 // dispatch_cmd executes a fully parsed command and returns its exit code.
 // Keeping this separate from main_loop lets main_loop set/unset temporary
 // KEY=VALUE env-prefix overrides at a single cleanup point.
-fn dispatch_cmd(cmd string, args []string, mut loaded_plugins []plugins.Plugin) int {
+// full_cmdline is the original, unsplit input used for hook notifications.
+fn dispatch_cmd(cmd string, args []string, mut loaded_plugins []plugins.Plugin, full_cmdline string) int {
 	match cmd {
 		'aliases' {
 			subcmd := if args.len > 0 { args[0] } else { 'list' }
@@ -355,6 +356,7 @@ fn dispatch_cmd(cmd string, args []string, mut loaded_plugins []plugins.Plugin) 
 			} else {
 				print(output)
 			}
+			plugins.run_output_hooks(loaded_plugins, full_cmdline, 0, output)
 		}
 		'cd' {
 			cmds.cd(args) or {
@@ -381,10 +383,11 @@ fn dispatch_cmd(cmd string, args []string, mut loaded_plugins []plugins.Plugin) 
 							cfg  : local_cfg
 						}
 					}
-					t.prepare_task() or {
+					ls_code := t.prepare_task() or {
 						utils.fail(err.msg())
 						return 1
 					}
+					plugins.run_output_hooks(loaded_plugins, full_cmdline, ls_code, t.last_output)
 				} else {
 					utils.fail(err.msg())
 				}
@@ -678,6 +681,7 @@ fn dispatch_cmd(cmd string, args []string, mut loaded_plugins []plugins.Plugin) 
 				utils.fail(err.msg())
 				return 1
 			}
+			plugins.run_output_hooks(loaded_plugins, full_cmdline, code, t.last_output)
 			return code
 		}
 	}
@@ -722,7 +726,7 @@ fn main_loop(input string, mut loaded_plugins []plugins.Plugin) int {
 		return 0
 	}
 
-	code := dispatch_cmd(cmd, args, mut loaded_plugins)
+	code := dispatch_cmd(cmd, args, mut loaded_plugins, input)
 	for key in env_keys { os.unsetenv(key) }
 	return code
 }

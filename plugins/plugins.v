@@ -43,6 +43,7 @@ pub mut:
 	has_prompt      bool
 	has_pre_hook    bool
 	has_post_hook   bool
+	has_output_hook bool
 	has_completion  bool
 	has_mux_status  bool
 }
@@ -340,6 +341,8 @@ pub fn load() []Plugin {
 				plugin.has_pre_hook = true
 			} else if t == 'post_hook' {
 				plugin.has_post_hook = true
+			} else if t == 'output_hook' {
+				plugin.has_output_hook = true
 			} else if t == 'completion' {
 				plugin.has_completion = true
 			} else if t == 'mux_status' {
@@ -417,6 +420,24 @@ pub fn run_post_hooks(loaded []Plugin, cmdline string, exit_code int) {
 		}
 		mut child := os.new_process(p.binary)
 		child.set_args(['post_hook', cmdline, exit_code.str()])
+		child.run()
+		child.wait()
+		child.close()
+	}
+}
+
+// run_output_hooks sends the captured stdout of a completed command to every
+// output-hook-capable plugin.  The plugin receives three arguments:
+//   output_hook <cmdline> <exit_code>
+// and the captured output is passed as a fourth argument.  For commands that
+// run directly on the terminal (not piped), output may be an empty string.
+pub fn run_output_hooks(loaded []Plugin, cmdline string, exit_code int, output string) {
+	for p in loaded {
+		if !p.has_output_hook {
+			continue
+		}
+		mut child := os.new_process(p.binary)
+		child.set_args(['output_hook', cmdline, exit_code.str(), output])
 		child.run()
 		child.wait()
 		child.close()
