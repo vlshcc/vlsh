@@ -13,6 +13,10 @@ to read, modify, and extend.
   shared across all sessions (last 5000 entries in `~/.vlsh_history`)
 - **Tab completion** — files and directories; `cd` completes only directories;
   plugins can register custom completions (e.g. SSH hostname completion)
+- **Inline autosuggestions** — as you type, the most recent matching history
+  entry is shown as dimmed ghost text; `cd` suggestions are validated against
+  the current filesystem and fall back to live directory listing when no valid
+  history match exists; press `→` or `End` to accept
 - **Aliases** — defined in `~/.vlshrc` or managed live with `aliases add/remove`
 - **Plugin system** — plugins are installed from the official remote repository
   into versioned directories under `~/.vlsh/plugins/<name>/<version>/`; vlsh
@@ -41,14 +45,14 @@ to read, modify, and extend.
 
 ### Pre-built packages (recommended)
 
-The latest release is **v1.1.2**. Pre-built packages for 64-bit Linux are
+The latest release is **v1.1.3**. Pre-built packages for 64-bit Linux are
 available on the [releases page](https://github.com/DavidSatimeWallin/vlsh/releases).
 
 **Debian / Ubuntu — install via `.deb`:**
 
 ```sh
-curl -LO https://github.com/DavidSatimeWallin/vlsh/releases/download/v1.1.2/vlsh_1.1.1_amd64.deb
-sudo dpkg -i vlsh_1.1.1_amd64.deb
+curl -LO https://github.com/DavidSatimeWallin/vlsh/releases/download/v1.1.3/vlsh_1.1.3_amd64.deb
+sudo dpkg -i vlsh_1.1.3_amd64.deb
 ```
 
 The package installs the binary to `/usr/bin/vlsh` and automatically adds it
@@ -57,9 +61,9 @@ to `/etc/shells` via the postinst script.
 **Other Linux — standalone binary:**
 
 ```sh
-curl -LO https://github.com/DavidSatimeWallin/vlsh/releases/download/v1.1.2/vlsh_1.1.1_amd64_linux
-chmod +x vlsh_1.1.1_amd64_linux
-sudo mv vlsh_1.1.1_amd64_linux /usr/local/bin/vlsh
+curl -LO https://github.com/DavidSatimeWallin/vlsh/releases/download/v1.1.3/vlsh_1.1.3_amd64_linux
+chmod +x vlsh_1.1.3_amd64_linux
+sudo mv vlsh_1.1.3_amd64_linux /usr/local/bin/vlsh
 ```
 
 ### Prerequisites (from source)
@@ -253,6 +257,12 @@ FIELD_LIST='used,avail' df -h --no-sync .
 All instances share a global history file at `~/.vlsh_history` (last 5000 entries).
 
 **Tab completion** – completes file and directory names. When the command is `cd`, only directories are suggested. Plugins can register a `completion` capability to provide custom completions for their commands (e.g. SSH hostnames for `ssh`).
+
+**Inline autosuggestions** – as you type, vlsh searches command history (most-recent first) for the first entry that starts with the current input and displays the untyped remainder as dimmed ghost text to the right of the cursor. Pressing `→` (right arrow) or `End` when the cursor is already at the end of the line accepts the full suggestion and inserts it into the input.
+
+For `cd` commands, each history candidate is validated against the filesystem before being offered: if the target directory no longer exists the entry is skipped and the next matching history entry is tried. When no valid history entry is found, the shell falls back to the tab-completion engine to generate a filesystem suggestion — for `cd` this is the first alphabetically sorted directory in the current working directory (or inside the partial path already typed); for other commands it is the first matching file or completion result.
+
+The ghost text is erased cleanly when you press Enter, so only the text you actually typed appears in the executed command line.
 
 **Plugins** – installed from the remote repository into versioned directories under `~/.vlsh/plugins/<name>/<version>/`. Each plugin can expose commands, pre/post-run hooks, output capture hooks (`output_hook`), prompt decorations, custom tab completions, and help text (`help` capability) shown by the built-in `help` command.
 

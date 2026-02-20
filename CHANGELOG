@@ -1,3 +1,51 @@
+## 2026-02-20 — version 1.1.3
+
+### Bug fixes
+
+**Tab completion inside subdirectory paths**
+- Pressing Tab after a path that ends with `/` (e.g. `cd .config/`) had no
+  effect when the shell was mid-cycle from a previous Tab press at a shallower
+  path level — the saved cycling prefix was used instead of the current path,
+  so no new completions were generated.
+- Fixed in `readline_fix.v` (`vlsh_completion`): if `r.current` ends with `/`
+  and a saved cycling prefix (`last_prefix_completion`) is present, it is
+  cleared before the prefix is chosen for the next call. This causes the next
+  Tab press to compute fresh completions rooted at the directory the user has
+  navigated into, matching the behaviour expected from bash and zsh.
+
+### Features added
+
+**Fish-style inline autosuggestions**
+- As the user types, `vlsh_get_suggestion` searches `r.previous_lines` (command
+  history, most-recent first) for the first entry that starts with the current
+  input and returns the untyped suffix as a ghost-text rune slice.
+- The suggestion is rendered as dimmed gray text (`\x1b[38;5;240m`) immediately
+  after `r.current` on every `vlsh_refresh_line` call. The editing cursor is
+  repositioned to the end of the typed text, so the ghost text is purely visual
+  and cannot be edited directly.
+- Pressing `→` (right arrow) at the end of the line or `End` / `Ctrl+E` when
+  already at the end appends the full suggestion to `r.current` and advances
+  the cursor. Any other key that changes the input automatically recomputes the
+  suggestion on the next redraw.
+- On Enter (`vlsh_commit_line`), an `\x1b[K` (erase to end of line) sequence
+  is emitted after the refresh and before the newline, so only the typed text
+  appears in the terminal's scrollback history.
+- **`cd` path validation** — for `cd` history candidates the target directory
+  is extracted from the history entry, tilde-expanded, and checked with
+  `os.is_dir`. Entries whose target path no longer exists are skipped; the
+  search continues to the next history entry.
+- **Filesystem fallback** — when no usable history entry is found,
+  `vlsh_get_suggestion` calls `r.completion_callback` (the same engine that
+  drives Tab completion) with the current prefix and returns the suffix of the
+  first result. For `cd` this yields the first matching directory in the
+  current working directory; for other commands it yields the first matching
+  file or plugin completion.
+- Implemented entirely in `readline_fix.v`; no global state is required.
+  `vlsh_get_suggestion(r Readline) []rune` is a pure read of the `Readline`
+  struct and may be called from any context.
+
+---
+
 ## 2026-02-20 — version 1.1.2
 
 ### Bug fixes
