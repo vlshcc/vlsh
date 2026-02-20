@@ -13,8 +13,10 @@
 //                             post_hook        called after every command
 //                             output_hook      called after every command with its captured stdout
 //                             mux_status       contributes text to the mux status bar
+//                             help             plugin provides help text (via the help verb)
 //
 //   run <command> [args]  — run a registered command
+//   help [command]        — print help text for the plugin (or a specific command)
 //   prompt                — print a single line shown above the '- ' prompt
 //   pre_hook  <cmdline>   — notification before a command runs
 //   post_hook <cmdline> <exit_code>   — notification after a command finishes
@@ -35,10 +37,19 @@ fn main() {
 	match op {
 		'capabilities' {
 			println('command hello')
+			println('help')
 			println('prompt')
 			println('pre_hook')
 			println('post_hook')
 			println('mux_status')
+		}
+		'help' {
+			println('hello - greet someone (example plugin command)')
+			println('')
+			println('Usage:')
+			println('  hello [name]   Print "Hello, <name>!"')
+			println('')
+			println('If name is omitted, greets "world".')
 		}
 		'run' {
 			cmd := if os.args.len > 2 { os.args[2] } else { '' }

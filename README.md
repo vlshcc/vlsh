@@ -40,13 +40,13 @@ to read, modify, and extend.
 
 ### Pre-built packages (recommended)
 
-The latest release is **v1.1.1**. Pre-built packages for 64-bit Linux are
+The latest release is **v1.1.2**. Pre-built packages for 64-bit Linux are
 available on the [releases page](https://github.com/DavidSatimeWallin/vlsh/releases).
 
 **Debian / Ubuntu — install via `.deb`:**
 
 ```sh
-curl -LO https://github.com/DavidSatimeWallin/vlsh/releases/download/v1.1.1/vlsh_1.1.1_amd64.deb
+curl -LO https://github.com/DavidSatimeWallin/vlsh/releases/download/v1.1.2/vlsh_1.1.1_amd64.deb
 sudo dpkg -i vlsh_1.1.1_amd64.deb
 ```
 
@@ -56,7 +56,7 @@ to `/etc/shells` via the postinst script.
 **Other Linux — standalone binary:**
 
 ```sh
-curl -LO https://github.com/DavidSatimeWallin/vlsh/releases/download/v1.1.1/vlsh_1.1.1_amd64_linux
+curl -LO https://github.com/DavidSatimeWallin/vlsh/releases/download/v1.1.2/vlsh_1.1.1_amd64_linux
 chmod +x vlsh_1.1.1_amd64_linux
 sudo mv vlsh_1.1.1_amd64_linux /usr/local/bin/vlsh
 ```

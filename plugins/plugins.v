@@ -46,6 +46,7 @@ pub mut:
 	has_output_hook bool
 	has_completion  bool
 	has_mux_status  bool
+	has_help        bool
 }
 
 // completions asks every completion-capable plugin for suggestions given the
@@ -347,6 +348,8 @@ pub fn load() []Plugin {
 				plugin.has_completion = true
 			} else if t == 'mux_status' {
 				plugin.has_mux_status = true
+			} else if t == 'help' {
+				plugin.has_help = true
 			}
 		}
 
@@ -494,6 +497,9 @@ pub fn remote_versions(plugin_name string) ![]string {
 	resp := http.get('${remote_api}/${plugin_name}') or {
 		return error('could not fetch versions for "${plugin_name}": ${err.msg()}')
 	}
+	if resp.status_code == 404 {
+		return error('plugin "${plugin_name}" not found in the remote repository')
+	}
 	if resp.status_code != 200 {
 		return error('remote returned status ${resp.status_code}')
 	}
@@ -570,6 +576,23 @@ pub fn delete_plugin(name string) ! {
 	if os.exists(bin) {
 		os.rm(bin) or {}
 	}
+}
+
+// show_help invokes <binary> help [cmd] for any loaded plugin that owns cmd
+// and declares the help capability.  Prints the plugin's output and returns
+// true.  Returns false when no matching plugin with help support is found.
+pub fn show_help(loaded []Plugin, cmd string) bool {
+	for p in loaded {
+		if !p.has_help {
+			continue
+		}
+		if cmd in p.commands {
+			result := os.execute('${p.binary} help ${cmd}')
+			print(result.output)
+			return true
+		}
+	}
+	return false
 }
 
 // search_remote fetches all remote plugins and filters by name or description.

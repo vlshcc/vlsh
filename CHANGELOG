@@ -1,3 +1,32 @@
+## 2026-02-20 — version 1.1.2
+
+### Bug fixes
+
+**DEL key now works correctly**
+- The DEL key was silently ignored because the terminal emits `ESC[P` (ANSI
+  DCH — Delete Character) rather than the more common `ESC[3~` (VT220 Delete).
+  Added `'P' { return .delete_right }` to `vlsh_analyse_escape` in
+  `readline_fix.v` so that `ESC[P` is correctly mapped to a forward-delete.
+- Reverted an earlier incorrect fix that mapped byte `127` to `delete_right`;
+  `127` is the Backspace key on this system and must remain `delete_left`.
+- `vlsh_delete_character` (Backspace) simplified: the erroneous col-0
+  forward-delete workaround has been removed; Backspace at column 0 now
+  correctly does nothing, matching standard shell behaviour.
+- `vlsh_suppr_character` (forward delete) now clears completion state after
+  deleting a character, preventing stale completion matches.
+
+**Plugin `help` command**
+- Plugins can now declare a `help` capability; vlsh invokes
+  `<binary> help [command]` when the user runs `help <plugin-command>`.
+- `has_help bool` added to the `Plugin` struct; new `show_help()` function
+  in `plugins/plugins.v` dispatches to the correct plugin binary.
+- `dispatch_cmd()` in `vlsh.v` tries plugin help before falling back to
+  the built-in help output.
+- `examples/hello_plugin.v` updated with a `help` handler and the `help`
+  capability listed under `capabilities`.
+
+---
+
 ## 2026-02-20 — version 1.1.1
 
 ### Features added

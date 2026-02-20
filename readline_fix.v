@@ -143,6 +143,7 @@ fn vlsh_analyse_escape(r Readline) VlshAction {
 		`A` { return .history_previous }
 		`H` { return .move_cursor_start }
 		`F` { return .move_cursor_end }
+		`P` { return .delete_right } // ESC[P — DCH (Delete Character); DEL key on some terminals
 		`1` {
 			// \x1b[1;5C / \x1b[1;5D — Ctrl+Right / Ctrl+Left
 			_ = r.read_char() or { return .nothing } // ';'
@@ -229,17 +230,9 @@ fn vlsh_insert_character(mut r Readline, c int) {
 	}
 }
 
-// vlsh_delete_character handles the Backspace key.
-// FIX: when the cursor is at position 0 on a non-empty line, perform a
-// forward-delete (remove the character *under* the cursor) instead of doing
-// nothing, matching what most shells do when DEL is pressed at column 0.
+// vlsh_delete_character handles the Backspace key (0x08).
 fn vlsh_delete_character(mut r Readline) {
 	if r.cursor <= 0 {
-		if r.current.len > 0 {
-			r.current.delete(0)
-			vlsh_refresh_line(mut r)
-			vlsh_completion_clear(mut r)
-		}
 		return
 	}
 	r.cursor--
@@ -254,6 +247,7 @@ fn vlsh_suppr_character(mut r Readline) {
 	}
 	r.current.delete(r.cursor)
 	vlsh_refresh_line(mut r)
+	vlsh_completion_clear(mut r)
 }
 
 fn vlsh_delete_word_left(mut r Readline) {

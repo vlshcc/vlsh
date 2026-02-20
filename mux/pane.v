@@ -588,7 +588,8 @@ pub fn (mut p Pane) feed(data []u8) {
 					if p.cur_y >= p.height { p.cur_y = p.height - 1 }
 				}
 			}
-			`\b` {
+			`\b`, 0x7f {
+				// BS and DEL both move the cursor one step left
 				if p.cur_x > 0 { p.cur_x-- }
 			}
 			0x07 {
