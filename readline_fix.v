@@ -99,6 +99,62 @@ fn vlsh_shift_cursor(xpos int, yoffset int) {
 	print('\x1b[${xpos + 1}G')
 }
 
+// vlsh_get_suggestion returns ghost-text for the current input.
+//
+// Strategy:
+//  1. Search history (most-recent first) for an entry that starts with the
+//     current input.  For 'cd' commands the target directory is validated; if
+//     it no longer exists on disk that entry is skipped.
+//  2. If no usable history entry is found, fall back to the completion
+//     callback (the same engine that drives Tab), and use its first result as
+//     the suggestion.
+fn vlsh_get_suggestion(r Readline) []rune {
+	if r.current.len == 0 {
+		return []rune{}
+	}
+	prefix := r.current.string()
+	cmd := prefix.trim_space().split(' ')[0]
+	is_cd := cmd == 'cd'
+
+	// ── 1. history ────────────────────────────────────────────────────────────
+	for i := 1; i < r.previous_lines.len; i++ {
+		entry := r.previous_lines[i].string()
+		if !entry.starts_with(prefix) || entry.len <= prefix.len {
+			continue
+		}
+		if is_cd {
+			// Skip history entries whose target directory no longer exists.
+			entry_parts := entry.trim_space().split(' ')
+			if entry_parts.len < 2 || entry_parts[1].len == 0 {
+				continue
+			}
+			path := entry_parts[1]
+			expanded := if path.starts_with('~') {
+				os.home_dir() + path[1..]
+			} else {
+				path
+			}
+			if !os.is_dir(expanded) {
+				continue
+			}
+		}
+		return r.previous_lines[i][r.current.len..].clone()
+	}
+
+	// ── 2. completion-based fallback ─────────────────────────────────────────
+	if r.completion_callback != unsafe { nil } {
+		opts := r.completion_callback(prefix)
+		if opts.len > 0 {
+			first := opts[0]
+			if first.len > prefix.len {
+				return first[prefix.len..].runes()
+			}
+		}
+	}
+
+	return []rune{}
+}
+
 fn vlsh_refresh_line(mut r Readline) {
 	mut end_of_input := [0, 0]
 	last_prompt_line := if r.prompt.contains('\n') {
@@ -111,6 +167,8 @@ fn vlsh_refresh_line(mut r Readline) {
 	current_width := east_asian.display_width(r.current.string(), 1)
 	cursor_prefix_width := east_asian.display_width(r.current[..r.cursor].string(), 1)
 
+	suggestion := vlsh_get_suggestion(r)
+
 	end_of_input = vlsh_calculate_screen_position(last_prompt_width, 0, vlsh_get_screen_columns(),
 		current_width, end_of_input)
 	end_of_input[1] += r.current.filter(it == `\n`).len
@@ -121,6 +179,11 @@ fn vlsh_refresh_line(mut r Readline) {
 	term.erase_toend()
 	print(last_prompt_line)
 	print(r.current.string())
+	if suggestion.len > 0 {
+		print('\x1b[38;5;240m')
+		print(suggestion.string())
+		print('\x1b[0m')
+	}
 	if end_of_input[0] == 0 && end_of_input[1] > 0 {
 		print('\n')
 	}
@@ -293,6 +356,7 @@ fn vlsh_commit_line(mut r Readline) bool {
 	r.cursor = r.current.len
 	if r.is_tty {
 		vlsh_refresh_line(mut r)
+		print('\x1b[K')
 		println('')
 	}
 	r.current << `\n`
@@ -310,6 +374,13 @@ fn vlsh_move_cursor_right(mut r Readline) {
 	if r.cursor < r.current.len {
 		r.cursor++
 		vlsh_refresh_line(mut r)
+	} else {
+		suggestion := vlsh_get_suggestion(r)
+		if suggestion.len > 0 {
+			r.current << suggestion
+			r.cursor = r.current.len
+			vlsh_refresh_line(mut r)
+		}
 	}
 }
 
@@ -319,6 +390,15 @@ fn vlsh_move_cursor_start(mut r Readline) {
 }
 
 fn vlsh_move_cursor_end(mut r Readline) {
+	if r.cursor == r.current.len {
+		suggestion := vlsh_get_suggestion(r)
+		if suggestion.len > 0 {
+			r.current << suggestion
+			r.cursor = r.current.len
+			vlsh_refresh_line(mut r)
+			return
+		}
+	}
 	r.cursor = r.current.len
 	vlsh_refresh_line(mut r)
 }
