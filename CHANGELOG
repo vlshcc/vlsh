@@ -1,3 +1,117 @@
+## 2026-02-20 — version 1.1.4
+
+### Bug fixes
+
+**Aliases that expand to builtins now work correctly**
+- An alias whose expansion begins with a shell builtin (e.g. `~local` → `cd ~/.local`)
+  previously failed with "cd not found in defined aliases or in $PATH" because alias
+  expansion inside `exec.Task` runs after builtin dispatch.
+- Fixed by adding one level of alias expansion at the very top of `dispatch_cmd`, before
+  the `match` statement. A self-alias guard (`expanded_cmd != cmd`) prevents infinite
+  recursion for trivially self-referential aliases.
+
+### Features added
+
+**`||` (OR) and `;` (unconditional sequence) command chaining**
+- The shell now supports three chaining operators:
+  - `&&` — run next command only if the previous one exited 0 (pre-existing)
+  - `||` — run next command only if the previous one exited non-zero
+  - `;`  — run next command unconditionally
+- A new `split_commands(input string) []ChainPart` function replaces the old
+  `split_and_chain`. It parses the input character-by-character, correctly ignoring
+  operators that appear inside single or double quotes. A lone `|` (pipe) is left in
+  the buffer for `walk_pipes` to handle.
+- `ChainPart { cmd string; pre_op string }` struct records each segment and the operator
+  that precedes it. Both have been moved to the new `shellops` sub-module.
+- `main_loop` now updates `$?` after every sub-command in a chain so that subsequent
+  segments see the correct last exit status.
+
+**`$?` — last exit status tracking**
+- `$?` is initialised to `"0"` in `main()` at shell startup.
+- After every top-level `main_loop` call (and after every sub-command in a chain),
+  `$?` is updated via `os.setenv('?', exit_code.str(), true)`.
+- Because the existing `echo` builtin already expands `$VAR` through `os.getenv`,
+  `echo $?` now works as expected with no further changes required.
+
+**`export` builtin**
+- `export` with no arguments prints all environment variables in `KEY=VALUE` format,
+  sorted alphabetically.
+- `export KEY=VALUE` sets the variable for the current session and all child processes.
+- `export KEY` (without `=`) is accepted as a no-op (variables are already inherited).
+
+**`unset` builtin**
+- `unset KEY [KEY …]` removes one or more environment variables from the session.
+
+**`source` / `.` builtin**
+- `source <file>` (or `. <file>`) reads the file line-by-line and executes each
+  non-blank, non-comment (`#`) line through `main_loop`.
+- Returns the exit code of the last executed line.
+- Useful for re-reading `~/.vlshrc` or loading shell scripts.
+
+**`exit N` — exit with status code**
+- `exit` now accepts an optional integer argument: `exit 0`, `exit 1`, `exit 42`, etc.
+- Without an argument, exits with code `0` (unchanged).
+
+**`cd` improvements**
+- `cd -` switches to the previous directory (`$OLDPWD`) and prints the new path,
+  matching POSIX / bash behaviour. Returns an error when `OLDPWD` is not set.
+- `~` and `~/…` are now expanded inside `cd` itself, regardless of whether the shell's
+  argument parser has already performed tilde expansion.
+- `$PWD` is set to the resolved working directory after every successful `cd`.
+- `$OLDPWD` is set to the directory that was current before the `cd`.
+
+**Input redirection `<`**
+- External commands now support `< file` to supply stdin from a file.
+- `parse_redirect` in `exec/exec.v` was extended to detect the `<` token and capture
+  the following argument as `stdin_file`; the function now returns a 4-tuple
+  `([]string, string, bool, string)`.
+- `Cmd_object` gained a `stdin_file string` field; `walk_pipes` forwards it from
+  `parse_redirect`.
+- In `run()`, when `stdin_file` is set, the file is read and used as `effective_input`
+  (replacing the empty piped-input default) before stdio is redirected.
+
+**New `shellops` sub-module**
+- Pure functions that previously lived in `vlsh.v` (and caused root-level test
+  compilation failures) have been extracted into `shellops/shellops.v`:
+  `split_commands`, `ChainPart`, `builtin_redirect`, `write_redirect`,
+  `venv_tracked`, `venv_track`, `venv_untrack`, and the `venv_registry` constant.
+- `vlsh.v` imports them via `import shellops { … }`.
+- The sub-module only depends on `os` and `strings`, keeping it free of heavy
+  readline/plugin/mux dependencies so the test runner can compile it standalone.
+
+### Tests
+
+**New `shellops/shellops_test.v`**
+- Replaces the deleted `vlsh_test.v` (which could not compile standalone due to V's
+  module resolution for root-level `module main` test files).
+- 8 test groups: `split_commands` (single, `&&`, `||`, `;`, mixed, quoted operators,
+  lone pipe), `builtin_redirect`, `write_redirect`, and `venv` helpers — 34 test
+  functions total; all pass.
+
+**New `cmds/cmds_test.v`**
+- 12 tests covering `cd`: no-args → home, explicit path, nonexistent → error,
+  file → error, `~` alone, `~/` path, `PWD` updated, `OLDPWD` updated, `OLDPWD`
+  updated on second change, `cd -` without `OLDPWD` → error, `cd -` returns to
+  previous directory, `cd -` updates `OLDPWD`.
+
+**Updated `exec/exec_test.v`**
+- All `parse_redirect` call sites updated from 3-tuple to 4-tuple destructuring.
+- New tests for `<`: basic stdin file, tilde in stdin path, `<` combined with `>`,
+  `<` combined with `>>`, absent `stdin_file` returns `''`, both `<` tokens stripped
+  from args.
+
+### Documentation
+
+- `README.md` updated with a `### POSIX compatibility` section covering all new
+  chaining operators, input redirection, `$?`, `export`/`unset`, `source`/`.`,
+  `cd` improvements, `exit N`, and aliases expanding to builtins.
+- Built-in commands table updated: `cd` entry mentions `cd -`; `exit [N]`; new rows
+  for `export`, `unset`, `source`/`.`.
+- "Features at a glance" bullet updated to include `||`, `;`, and `<`.
+- Version bumped to `1.1.4` in `vlsh.v`, `v.mod`, and `README.md`.
+
+---
+
 ## 2026-02-20 — version 1.1.3
 
 ### Bug fixes

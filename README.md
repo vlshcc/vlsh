@@ -6,7 +6,7 @@ to read, modify, and extend.
 
 ### Features at a glance
 
-- **Pipes, redirection, and AND-chains** — `cmd1 | cmd2`, `> file`, `>> file`, `cmd1 && cmd2`
+- **Pipes, redirection, and command chaining** — `cmd1 | cmd2`, `> file`, `>> file`, `< file`; AND-chains (`&&`), OR-chains (`||`), and unconditional sequences (`;`)
 - **Glob expansion** — `*.v`, `./*.deb`, `~/docs/**` expanded before execution
 - **Tilde and environment-variable expansion** — `~/path`, `$VAR`, `VAR=val cmd`
 - **Command history** — up/down arrow browsing and `Ctrl+R` incremental search;
@@ -45,14 +45,14 @@ to read, modify, and extend.
 
 ### Pre-built packages (recommended)
 
-The latest release is **v1.1.3**. Pre-built packages for 64-bit Linux are
-available on the [releases page](https://github.com/DavidSatimeWallin/vlsh/releases).
+The latest release is **v1.1.4**. Pre-built packages for 64-bit Linux are
+available on the [releases page](https://github.com/vlshcc/vlsh/releases).
 
 **Debian / Ubuntu — install via `.deb`:**
 
 ```sh
-curl -LO https://github.com/DavidSatimeWallin/vlsh/releases/download/v1.1.3/vlsh_1.1.3_amd64.deb
-sudo dpkg -i vlsh_1.1.3_amd64.deb
+curl -LO https://github.com/vlshcc/vlsh/releases/download/v1.1.4/vlsh_1.1.4_amd64.deb
+sudo dpkg -i vlsh_1.1.4_amd64.deb
 ```
 
 The package installs the binary to `/usr/bin/vlsh` and automatically adds it
@@ -61,9 +61,9 @@ to `/etc/shells` via the postinst script.
 **Other Linux — standalone binary:**
 
 ```sh
-curl -LO https://github.com/DavidSatimeWallin/vlsh/releases/download/v1.1.3/vlsh_1.1.3_amd64_linux
-chmod +x vlsh_1.1.3_amd64_linux
-sudo mv vlsh_1.1.3_amd64_linux /usr/local/bin/vlsh
+curl -LO https://github.com/vlshcc/vlsh/releases/download/v1.1.4/vlsh_1.1.4_amd64_linux
+chmod +x vlsh_1.1.4_amd64_linux
+sudo mv vlsh_1.1.4_amd64_linux /usr/local/bin/vlsh
 ```
 
 ### Prerequisites (from source)
@@ -195,9 +195,10 @@ A plain-text file read on every command. Lines beginning with `"` are comments.
 | `aliases list` | List all defined aliases |
 | `aliases add <name>=<cmd>` | Add or update an alias |
 | `aliases remove <name>` | Remove an alias |
-| `cd [dir]` | Change directory (`~` expands to `$HOME`; home if omitted) |
+| `cd [dir]` | Change directory; `~` and `~/path` expand to `$HOME`; home if omitted; `cd -` returns to the previous directory |
 | `echo [args…]` | Print arguments; expands `$VAR` and `$0`; supports `>` / `>>` |
-| `exit` | Exit the shell |
+| `exit [N]` | Exit the shell with optional status code (default 0) |
+| `export [NAME=value …]` | Set environment variables; with no args, lists all exported variables |
 | `help [cmd]` | Show command list, or detailed help for a specific command |
 | `ls [dir]` | Colorised directory listing (falls through to system `ls` when flags are passed) |
 | `mux` | Enter terminal multiplexer mode |
@@ -216,8 +217,10 @@ A plain-text file read on every command. Lines beginning with `"` are comments.
 | `plugins install <name>` | Download and install the latest version of a plugin |
 | `plugins update [name]` | Update one or all installed plugins to their latest version |
 | `plugins delete <name>` | Delete an installed plugin |
+| `source <file>` / `. <file>` | Execute a script in the current shell context (respects `#` comments and blank lines) |
 | `style list` | Show current style/colour settings |
 | `style set <key> <r> <g> <b>` | Set a prompt colour (RGB 0–255) |
+| `unset <NAME> …` | Remove one or more environment variables |
 | `venv list` | List shell environment variables set via `venv` |
 | `venv add <NAME> <value>` | Set an environment variable for the current session |
 | `venv rm <NAME>` | Unset an environment variable |
@@ -236,9 +239,26 @@ echo "hello" > file.txt
 echo "world" >> file.txt
 ```
 
-**AND-chains** – run the next command only if the previous one succeeds:
+**Input redirection** – feed a file into a command's stdin with `<`:
+```
+wc -l < report.txt
+grep error < app.log | wc -l
+```
+
+**AND-chains** – run the next command only if the previous one succeeds (exit 0):
 ```
 touch /tmp/x && echo "file created"
+```
+
+**OR-chains** – run the next command only if the previous one fails (exit non-0):
+```
+ping -c1 host || echo "host unreachable"
+```
+
+**Unconditional sequences** – run commands one after another regardless of exit status:
+```
+echo hello ; echo world
+make ; make install
 ```
 
 **Tilde expansion** – `~` and `~/path` are expanded to `$HOME` in both commands and arguments:
@@ -253,6 +273,13 @@ FIELD_LIST='used,avail' df -h --no-sync .
 
 **Variable expansion in echo** – `$VAR` expands to the environment variable value; `$0` expands to `vlsh`.
 
+**Last exit status** – `$?` holds the exit code of the most recently run command and is updated after every command, including each step in `&&` / `||` / `;` chains:
+```
+false
+echo $?    # prints 1
+true && echo $?   # prints 0
+```
+
 **Command history** – up/down arrows browse history; `Ctrl+R` searches history.
 All instances share a global history file at `~/.vlsh_history` (last 5000 entries).
 
@@ -263,6 +290,85 @@ All instances share a global history file at `~/.vlsh_history` (last 5000 entrie
 For `cd` commands, each history candidate is validated against the filesystem before being offered: if the target directory no longer exists the entry is skipped and the next matching history entry is tried. When no valid history entry is found, the shell falls back to the tab-completion engine to generate a filesystem suggestion — for `cd` this is the first alphabetically sorted directory in the current working directory (or inside the partial path already typed); for other commands it is the first matching file or completion result.
 
 The ghost text is erased cleanly when you press Enter, so only the text you actually typed appears in the executed command line.
+
+### POSIX compatibility
+
+vlsh is not a POSIX-conformant shell, but it supports the most commonly used POSIX shell features so that everyday scripts and interactive habits carry over without surprises.
+
+#### Command chaining operators
+
+| Operator | Behaviour |
+|----------|-----------|
+| `cmd1 && cmd2` | Run `cmd2` only if `cmd1` exits 0 |
+| `cmd1 \|\| cmd2` | Run `cmd2` only if `cmd1` exits non-0 |
+| `cmd1 ; cmd2` | Run `cmd2` unconditionally after `cmd1` |
+
+All three operators respect single and double quotes (an operator inside quotes is treated as literal text), and a lone `|` is always treated as a pipe, not part of `||`.
+
+#### Input redirection
+
+```
+sort < unsorted.txt
+diff <(sort a.txt) <(sort b.txt)   # requires process substitution; not yet supported
+grep pattern < file.txt | wc -l
+```
+
+#### Exit status (`$?`)
+
+`$?` is set after every command — including each step in a chain — and can be read with `echo $?`. It is initialised to `0` when the shell starts.
+
+#### `export` and `unset`
+
+```
+export EDITOR=nvim          # set and mark variable for child processes
+export PATH                  # re-export an existing variable (no-op in vlsh; all vars inherit)
+export                       # list all current environment variables
+unset EDITOR                 # remove a variable from the environment
+```
+
+#### `source` / `.`
+
+Execute a script file in the current shell context. The file is read line by line; blank lines and lines beginning with `#` are skipped. The return value is the exit code of the last command in the file.
+
+```
+source ~/.vlshrc
+. ~/.vlshrc          # POSIX dot-command synonym
+```
+
+This is how vlsh loads its own configuration at startup. You can use it to reload your config live after editing it.
+
+#### `cd` improvements
+
+| Invocation | Behaviour |
+|-----------|-----------|
+| `cd` | Change to `$HOME` |
+| `cd ~` | Change to `$HOME` |
+| `cd ~/path` | Change to `$HOME/path` |
+| `cd -` | Change to the previous working directory (stored in `$OLDPWD`) and print the new path |
+| `cd /some/dir` | Change to the given path |
+
+`$PWD` and `$OLDPWD` are kept in sync after every successful `cd`.
+
+#### `exit N`
+
+```
+exit        # exit with code 0
+exit 1      # exit with code 1
+exit 42     # exit with code 42
+```
+
+The exit code is visible to the parent process (`echo $?` in an outer shell).
+
+#### Aliases that expand to builtins
+
+Aliases whose expansion begins with a builtin command work correctly:
+
+```
+aliases add nav cd /tmp
+nav           # equivalent to: cd /tmp
+aliases add home cd ~
+home          # equivalent to: cd ~
+```
 
 **Plugins** – installed from the remote repository into versioned directories under `~/.vlsh/plugins/<name>/<version>/`. Each plugin can expose commands, pre/post-run hooks, output capture hooks (`output_hook`), prompt decorations, custom tab completions, and help text (`help` capability) shown by the built-in `help` command.
 

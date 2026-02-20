@@ -1,7 +1,6 @@
 module main
 
 import os
-import strings
 import term
 import readline { Readline }
 
@@ -10,9 +9,11 @@ import cmds
 import exec
 import mux
 import plugins
+import shellops { ChainPart, builtin_redirect, split_commands, venv_track, venv_tracked,
+	venv_untrack, write_redirect }
 import utils
 
-const version = '1.1.3'
+const version = '1.1.4'
 
 fn pre_prompt() string {
 	mut current_dir := term.colorize(term.bold, '$os.getwd() ')
@@ -118,6 +119,7 @@ fn main() {
 		return tab_complete(input, loaded_plugins)
 	}
 	load_history(mut r)
+	os.setenv('?', '0', true)
 	for {
 		println(pre_prompt())
 		seg := plugins.prompt_segments(loaded_plugins)
@@ -136,122 +138,38 @@ fn main() {
 		}
 		plugins.run_pre_hooks(loaded_plugins, trimmed)
 		exit_code := main_loop(trimmed, mut loaded_plugins)
+		os.setenv('?', exit_code.str(), true)
 		plugins.run_post_hooks(loaded_plugins, trimmed, exit_code)
 	}
 }
 
-// builtin_redirect strips > and >> redirection tokens from a built-in command's
-// argument list, returning (cleanArgs, targetFile, appendMode).
-fn builtin_redirect(args []string) ([]string, string, bool) {
-	mut out      := []string{}
-	mut rfile    := ''
-	mut rappend  := false
-	mut skip     := false
-	for i, tok in args {
-		if skip { skip = false; continue }
-		if tok == '>>' {
-			rappend = true
-			if i + 1 < args.len {
-				rfile = if args[i+1].starts_with('~/') {
-					os.home_dir() + args[i+1][1..]
-				} else if args[i+1] == '~' {
-					os.home_dir()
-				} else {
-					args[i+1]
-				}
-				skip = true
-			}
-		} else if tok == '>' {
-			rappend = false
-			if i + 1 < args.len {
-				rfile = if args[i+1].starts_with('~/') {
-					os.home_dir() + args[i+1][1..]
-				} else if args[i+1] == '~' {
-					os.home_dir()
-				} else {
-					args[i+1]
-				}
-				skip = true
-			}
-		} else {
-			out << tok
-		}
-	}
-	return out, rfile, rappend
-}
 
-// write_redirect writes output to a file (create/truncate or append).
-fn write_redirect(path string, content string, append_mode bool) ! {
-	flag := if append_mode { 'a' } else { 'w' }
-	mut f := os.open_file(path, flag) or {
-		return error('cannot open ${path}: ${err.msg()}')
-	}
-	f.write_string(content) or {}
-	f.close()
-}
-
-// split_and_chain splits an input string on && tokens while respecting single
-// and double quotes.  Each returned element is a trimmed sub-command string.
-fn split_and_chain(input string) []string {
-	mut parts     := []string{}
-	mut current   := strings.new_builder(64)
-	mut in_single := false
-	mut in_double := false
-	mut i         := 0
-	for i < input.len {
-		ch := input[i]
-		if ch == `'` && !in_double {
-			in_single = !in_single
-			current.write_u8(ch)
-		} else if ch == `"` && !in_single {
-			in_double = !in_double
-			current.write_u8(ch)
-		} else if ch == `&` && !in_single && !in_double && i + 1 < input.len && input[i + 1] == `&` {
-			s := current.str().trim_space()
-			if s != '' { parts << s }
-			current = strings.new_builder(64)
-			i += 2
-			continue
-		} else {
-			current.write_u8(ch)
-		}
-		i++
-	}
-	s := current.str().trim_space()
-	if s != '' { parts << s }
-	return parts
-}
 
 // venv helpers — the list of venv-managed variable names is stored inside the
 // environment itself (as a colon-separated value) so no global state is needed.
-const venv_registry = '__VLSH_VENV'
-
-fn venv_tracked() []string {
-	reg := os.getenv(venv_registry)
-	if reg == '' { return []string{} }
-	return reg.split(':').filter(it.len > 0)
-}
-
-fn venv_track(key string) {
-	mut keys := venv_tracked()
-	if key !in keys { keys << key }
-	os.setenv(venv_registry, keys.join(':'), true)
-}
-
-fn venv_untrack(key string) {
-	keys := venv_tracked().filter(it != key)
-	if keys.len == 0 {
-		os.unsetenv(venv_registry)
-	} else {
-		os.setenv(venv_registry, keys.join(':'), true)
-	}
-}
+// The implementation lives in the shellops sub-module and is imported above.
 
 // dispatch_cmd executes a fully parsed command and returns its exit code.
 // Keeping this separate from main_loop lets main_loop set/unset temporary
 // KEY=VALUE env-prefix overrides at a single cleanup point.
 // full_cmdline is the original, unsplit input used for hook notifications.
 fn dispatch_cmd(cmd string, args []string, mut loaded_plugins []plugins.Plugin, full_cmdline string) int {
+	// Expand aliases before the match so that aliases whose expansion begins
+	// with a builtin command (e.g. `nav=cd /tmp`) are dispatched correctly
+	// instead of being sent to the external-command executor.
+	// One level of expansion is performed; if the expanded command is the same
+	// as the original (self-alias guard) we fall through to avoid infinite recursion.
+	alias_cfg := cfg.get() or { cfg.Cfg{} }
+	if cmd in alias_cfg.aliases {
+		alias_split := alias_cfg.aliases[cmd].split(' ')
+		expanded_cmd := alias_split[0]
+		if expanded_cmd != cmd {
+			mut expanded_args := if alias_split.len > 1 { alias_split[1..].clone() } else { []string{} }
+			expanded_args << args
+			return dispatch_cmd(expanded_cmd, expanded_args, mut loaded_plugins, full_cmdline)
+		}
+	}
+
 	match cmd {
 		'aliases' {
 			subcmd := if args.len > 0 { args[0] } else { 'list' }
@@ -365,7 +283,46 @@ fn dispatch_cmd(cmd string, args []string, mut loaded_plugins []plugins.Plugin, 
 			}
 		}
 		'ocp'     { cmds.ocp(args) or { utils.fail(err.msg()) } }
-		'exit'    { exit(0) }
+		'exit' {
+			code := if args.len > 0 { args[0].int() } else { 0 }
+			exit(code)
+		}
+		'export' {
+			if args.len == 0 {
+				env := os.environ()
+				mut keys := env.keys()
+				keys.sort()
+				for k in keys { println('${k}=${env[k]}') }
+			} else {
+				for arg in args {
+					if arg.contains('=') {
+						eq := arg.index_u8(`=`)
+						os.setenv(arg[..eq], arg[eq + 1..], true)
+					}
+					// 'export VAR' without =: no-op (vars already inherit)
+				}
+			}
+		}
+		'unset' {
+			for arg in args { os.unsetenv(arg) }
+		}
+		'source', '.' {
+			if args.len == 0 {
+				utils.fail('source: missing filename')
+				return 1
+			}
+			content := os.read_file(args[0]) or {
+				utils.fail('source: ${args[0]}: ${err.msg()}')
+				return 1
+			}
+			mut last_code := 0
+			for line in content.split('\n') {
+				t := line.trim_space()
+				if t.len == 0 || t.starts_with('#') { continue }
+				last_code = main_loop(t, mut loaded_plugins)
+			}
+			return last_code
+		}
 		'help' {
 			if args.len > 0 && plugins.show_help(loaded_plugins, args[0]) {
 				// plugin handled the help request
@@ -696,14 +653,21 @@ fn dispatch_cmd(cmd string, args []string, mut loaded_plugins []plugins.Plugin, 
 
 fn main_loop(input string, mut loaded_plugins []plugins.Plugin) int {
 
-	// Handle && chains: run each command in sequence; stop on first failure.
-	and_parts := split_and_chain(input)
-	if and_parts.len > 1 {
-		for part in and_parts {
-			code := main_loop(part, mut loaded_plugins)
-			if code != 0 { return code }
+	// Handle &&, ||, and ; chains while respecting quotes.
+	chain := split_commands(input)
+	if chain.len > 1 {
+		mut last_code := 0
+		for i, part in chain {
+			should_run := i == 0 ||
+				(part.pre_op == '&&' && last_code == 0) ||
+				(part.pre_op == '||' && last_code != 0) ||
+				part.pre_op == ';'
+			if should_run {
+				last_code = main_loop(part.cmd, mut loaded_plugins)
+				os.setenv('?', last_code.str(), true)
+			}
 		}
-		return 0
+		return last_code
 	}
 
 	input_split := utils.parse_args(input)

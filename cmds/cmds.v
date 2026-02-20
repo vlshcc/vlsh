@@ -193,9 +193,23 @@ fn help_sub(cmd string) {
 }
 
 pub fn cd(args []string) ! {
+	current := os.getwd()
 	mut target := os.home_dir()
 	if args.len > 0 {
-		target = args[0]
+		if args[0] == '-' {
+			oldpwd := os.getenv('OLDPWD')
+			if oldpwd == '' {
+				return error('cd: OLDPWD not set')
+			}
+			target = oldpwd
+			println(target)
+		} else if args[0] == '~' {
+			target = os.home_dir()
+		} else if args[0].starts_with('~/') {
+			target = os.home_dir() + args[0][1..]
+		} else {
+			target = args[0]
+		}
 	}
 	if os.is_file(target) {
 		return error('${target}: not a directory')
@@ -203,5 +217,7 @@ pub fn cd(args []string) ! {
 	os.chdir(target) or {
 		return error('could not change directory to ${target}: ${err}')
 	}
+	os.setenv('OLDPWD', current, true)
+	os.setenv('PWD', os.getwd(), true)
 }
 

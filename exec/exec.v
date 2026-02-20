@@ -75,6 +75,12 @@ pub struct Cmd_object{
 	or >> (true, append) semantics are used.
 	*/
 	redirect_append			bool
+	/*
+	stdin_file is the path to read stdin from when
+	the command uses < input redirection.
+	Empty string means no redirection.
+	*/
+	stdin_file				string
 }
 
 pub struct Task {
@@ -171,12 +177,14 @@ fn norm_pipe(i string) string {
 	return r.join('|')
 }
 
-// parse_redirect scans a token list for > or >> operators and extracts the
-// redirect target filename.  Returns the cleaned args, filename, and append flag.
-fn parse_redirect(tokens []string) ([]string, string, bool) {
+// parse_redirect scans a token list for >, >>, and < operators and extracts
+// their filenames.  Returns the cleaned args, output file, append flag, and
+// input (stdin) file.
+fn parse_redirect(tokens []string) ([]string, string, bool, string) {
 	mut out_args     := []string{}
 	mut rfile        := ''
 	mut rappend      := false
+	mut stdin_file   := ''
 	mut skip_next    := false
 	for i, tok in tokens {
 		if skip_next {
@@ -195,11 +203,16 @@ fn parse_redirect(tokens []string) ([]string, string, bool) {
 				rfile     = expand_tilde(tokens[i + 1])
 				skip_next = true
 			}
+		} else if tok == '<' {
+			if i + 1 < tokens.len {
+				stdin_file = expand_tilde(tokens[i + 1])
+				skip_next  = true
+			}
 		} else {
 			out_args << tok
 		}
 	}
-	return out_args, rfile, rappend
+	return out_args, rfile, rappend, stdin_file
 }
 
 fn (mut t Task) walk_pipes() {
@@ -215,8 +228,8 @@ fn (mut t Task) walk_pipes() {
 		if split_pipe.len > 1 {
 			raw_args << split_pipe[1..]
 		}
-		// Extract any > or >> redirection from the argument list.
-		args, rfile, rappend := parse_redirect(raw_args)
+		// Extract any >, >>, or < redirection from the argument list.
+		args, rfile, rappend, stdin_file := parse_redirect(raw_args)
 
 		mut intercept := true
 		mut next_index := index
@@ -236,6 +249,7 @@ fn (mut t Task) walk_pipes() {
 			next_pipe_index:    next_index,
 			redirect_file:      rfile,
 			redirect_append:    rappend,
+			stdin_file:         stdin_file,
 		}
 		if index == 0 {
 			t.cmd = obj
@@ -318,8 +332,17 @@ fn (mut t Task) run(c Cmd_object) (int) {
 		child.set_args(c.args.map(expand_tilde(it)))
 	}
 
+	// Resolve effective stdin: pipe input takes precedence, then < file.
+	mut effective_input := c.input
+	if effective_input == '' && c.stdin_file != '' {
+		effective_input = os.read_file(c.stdin_file) or {
+			utils.fail('cannot open ${c.stdin_file}: ${err.msg()}')
+			return c.next_pipe_index
+		}
+	}
+
 	// set_redirect_stdio() must be called before run()
-	if c.input != '' || c.intercept_stdio {
+	if effective_input != '' || c.intercept_stdio {
 		child.set_redirect_stdio()
 	}
 
@@ -329,8 +352,8 @@ fn (mut t Task) run(c Cmd_object) (int) {
 	// ignore SIGINT so that Ctrl+C only kills the child, not vlsh itself.
 	unsafe { C.signal(C.SIGINT, voidptr(1)) } // SIG_IGN
 
-	if c.input != '' {
-		child.stdin_write(c.input)
+	if effective_input != '' {
+		child.stdin_write(effective_input)
 	}
 
 	/*
@@ -340,7 +363,7 @@ fn (mut t Task) run(c Cmd_object) (int) {
 	until EOF will block forever. It also prevents interactive programs
 	like `more` from hanging on an open-but-empty stdin pipe.
 	*/
-	if c.input != '' || c.intercept_stdio {
+	if effective_input != '' || c.intercept_stdio {
 		C.close(child.stdio_fd[0])
 		child.stdio_fd[0] = -1
 	}
@@ -367,10 +390,11 @@ fn (mut t Task) run(c Cmd_object) (int) {
 		}
 		f.write_string(output) or {}
 		f.close()
-	} else if c.input != '' {
+	} else if effective_input != '' {
 		/*
-		last command in the pipe chain: stdout was redirected so we
-		could write to its stdin. slurp and print its output, then wait.
+		last command in the pipe chain (or with stdin redirection): stdout
+		was redirected so we could write to its stdin. slurp and print its
+		output, then wait.
 		*/
 		output := child.stdout_slurp()
 		child.wait()
