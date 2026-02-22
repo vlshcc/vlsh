@@ -45,14 +45,14 @@ to read, modify, and extend.
 
 ### Pre-built packages (recommended)
 
-The latest release is **v1.1.4**. Pre-built packages for 64-bit Linux are
+The latest release is **v1.1.5**. Pre-built packages for 64-bit Linux are
 available on the [releases page](https://github.com/vlshcc/vlsh/releases).
 
 **Debian / Ubuntu — install via `.deb`:**
 
 ```sh
-curl -LO https://github.com/vlshcc/vlsh/releases/download/v1.1.4/vlsh_1.1.4_amd64.deb
-sudo dpkg -i vlsh_1.1.4_amd64.deb
+curl -LO https://github.com/vlshcc/vlsh/releases/download/v1.1.5/vlsh_1.1.5_amd64.deb
+sudo dpkg -i vlsh_1.1.5_amd64.deb
 ```
 
 The package installs the binary to `/usr/bin/vlsh` and automatically adds it
@@ -61,9 +61,9 @@ to `/etc/shells` via the postinst script.
 **Other Linux — standalone binary:**
 
 ```sh
-curl -LO https://github.com/vlshcc/vlsh/releases/download/v1.1.4/vlsh_1.1.4_amd64_linux
-chmod +x vlsh_1.1.4_amd64_linux
-sudo mv vlsh_1.1.4_amd64_linux /usr/local/bin/vlsh
+curl -LO https://github.com/vlshcc/vlsh/releases/download/v1.1.5/vlsh_1.1.5_amd64_linux
+chmod +x vlsh_1.1.5_amd64_linux
+sudo mv vlsh_1.1.5_amd64_linux /usr/local/bin/vlsh
 ```
 
 ### Prerequisites (from source)

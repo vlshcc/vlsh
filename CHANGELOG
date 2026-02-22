@@ -1,3 +1,30 @@
+## 2026-02-22 — version 1.1.5
+
+### Platform support
+
+**macOS compatibility**
+- `mux/pty_helpers.h`: replaced the unconditional `#include <pty.h>` with a
+  platform guard — on Apple targets (`__APPLE__`) the header is now
+  `<util.h>`, which provides `openpty` and friends on macOS; all other
+  platforms continue to use `<pty.h>`.
+- `readline_fix.v`: introduced a new `VlshReadline` struct that embeds the
+  stdlib `Readline` and carries the Ctrl+R history-search fields
+  (`search_query`, `search_match_index`, `search_mode`,
+  `search_saved_prompt`, `search_saved_prompt_offset`,
+  `search_saved_current`) directly. The vlib `Readline` struct omits these
+  fields on some platforms (including macOS), so keeping them in `VlshReadline`
+  ensures the code compiles and runs correctly on all supported targets.
+- All internal functions that previously accepted `Readline` (or `mut Readline`)
+  now accept `VlshReadline` (or `mut VlshReadline`).
+- `vlsh.v`: the `import readline { Readline }` import is removed (no longer
+  needed); `main()` instantiates `VlshReadline{}` instead of `Readline{}`;
+  `load_history` updated accordingly.
+
+### Version bumps
+- Version bumped to `1.1.5` in `vlsh.v`, `v.mod`, and `README.md`.
+
+---
+
 ## 2026-02-20 — version 1.1.4
 
 ### Bug fixes
