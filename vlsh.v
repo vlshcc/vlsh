@@ -11,7 +11,7 @@ import plugins
 import shellops { ChainPart, builtin_redirect, split_commands, write_redirect }
 import utils
 
-const version = '1.1.6'
+const version = '1.1.7'
 
 fn pre_prompt() string {
 	mut current_dir := term.colorize(term.bold, '$os.getwd() ')

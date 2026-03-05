@@ -1,3 +1,23 @@
+## 2026-03-05 — version 1.1.7
+
+### Bug fixes
+
+**Fix interactive/TUI programs hanging the shell**
+- Commands like `vi`, `atto`, `nano`, `ssh`, and other interactive programs
+  would hang vlsh because `exec.run()` unconditionally redirected
+  stdin/stdout/stderr through pipes via `set_redirect_stdio()`.  Interactive
+  programs need direct terminal (TTY) access for keyboard input and screen
+  control, which pipes cannot provide.
+- `exec.run()` now only redirects stdio when it is actually needed: pipe
+  chains, file redirection (`>`, `>>`, `<`), or piped stdin input from a
+  previous command.  Standalone commands inherit the terminal's file
+  descriptors directly, allowing TUI programs to work correctly.
+
+### Version bumps
+- Version bumped to `1.1.7` in `vlsh.v`, `v.mod`, and `README.md`.
+
+---
+
 ## 2026-03-05 — version 1.1.6
 
 ### Breaking changes

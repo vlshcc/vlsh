@@ -280,9 +280,15 @@ fn (mut t Task) run(c Cmd_object) (int) {
 		}
 	}
 
-	// Always redirect stdio so every command's stdout is captured for
-	// plugin output_hooks (e.g. the hist plugin's terminal history).
-	child.set_redirect_stdio()
+	// Only redirect stdio through pipes when the command is part of a pipe
+	// chain, uses file redirection, or receives piped/file input.  Standalone
+	// commands inherit the terminal's file descriptors so that interactive
+	// programs (editors, pagers, ssh, etc.) work correctly.
+	needs_capture := effective_input != '' || c.redirect_file != '' || c.set_redirect_stdio
+
+	if needs_capture {
+		child.set_redirect_stdio()
+	}
 
 	child.run()
 
@@ -290,47 +296,46 @@ fn (mut t Task) run(c Cmd_object) (int) {
 	// ignore SIGINT so that Ctrl+C only kills the child, not vlsh itself.
 	unsafe { C.signal(C.SIGINT, voidptr(1)) } // SIG_IGN
 
-	if effective_input != '' {
-		child.stdin_write(effective_input)
-	}
-
-	/*
-	Close the write-end of the stdin pipe after writing (or immediately
-	if there was no input). This signals EOF to the child so it stops
-	waiting for more input. Without this, commands like `wc` that read
-	until EOF will block forever.
-	*/
-	C.close(child.stdio_fd[0])
-	child.stdio_fd[0] = -1
-
-	if c.intercept_stdio && c.next_pipe_index >= 0 && c.redirect_file == '' {
-		/*
-		slurp all stdout before wait() to drain the pipe and avoid
-		deadlock. stdout_slurp() blocks until the child closes its
-		stdout (i.e. exits), then wait() reaps the process.
-		Using stdout_read() here would only capture 4096 bytes.
-		*/
-		output := child.stdout_slurp()
-		child.wait()
-		t.pipe_cmds[c.next_pipe_index].input = output
-	} else if c.redirect_file != '' {
-		// Output redirection: capture stdout and write to file.
-		output := child.stdout_slurp()
-		child.wait()
-		t.last_exit_code = child.code
-		flag := if c.redirect_append { 'a' } else { 'w' }
-		mut f := os.open_file(c.redirect_file, flag) or {
-			utils.fail('cannot open redirect file: ${err.msg()}')
-			return c.next_pipe_index
+	if needs_capture {
+		if effective_input != '' {
+			child.stdin_write(effective_input)
 		}
-		f.write_string(output) or {}
-		f.close()
+
+		/*
+		Close the write-end of the stdin pipe after writing (or immediately
+		if there was no input). This signals EOF to the child so it stops
+		waiting for more input. Without this, commands like `wc` that read
+		until EOF will block forever.
+		*/
+		C.close(child.stdio_fd[0])
+		child.stdio_fd[0] = -1
+
+		if c.intercept_stdio && c.next_pipe_index >= 0 && c.redirect_file == '' {
+			output := child.stdout_slurp()
+			child.wait()
+			t.pipe_cmds[c.next_pipe_index].input = output
+		} else if c.redirect_file != '' {
+			output := child.stdout_slurp()
+			child.wait()
+			t.last_exit_code = child.code
+			flag := if c.redirect_append { 'a' } else { 'w' }
+			mut f := os.open_file(c.redirect_file, flag) or {
+				utils.fail('cannot open redirect file: ${err.msg()}')
+				return c.next_pipe_index
+			}
+			f.write_string(output) or {}
+			f.close()
+		} else {
+			output := child.stdout_slurp()
+			child.wait()
+			t.last_exit_code = child.code
+			t.last_output = output
+			print(output)
+		}
 	} else {
-		output := child.stdout_slurp()
 		child.wait()
 		t.last_exit_code = child.code
-		t.last_output = output
-		print(output)
+		t.last_output = ''
 	}
 
 	child.close()
