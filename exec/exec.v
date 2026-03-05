@@ -486,6 +486,25 @@ fn (mut c Cmd_object) find_exe() ! {
 		}
 	}
 
+	// Failsafe: if configured PATH is empty, try standard system paths
+	// so the user cannot be locked out of running commands.
+	if c.cfg.paths.len == 0 {
+		utils.warn('PATH is empty or misconfigured -- using fallback paths: ${cfg.fallback_paths}')
+		for path in cfg.fallback_paths {
+			if !os.exists(path) { continue }
+			full := [path, c.cmd].join('/')
+			if os.exists(full) {
+				c.fullcmd = full
+				c.path    = path
+				return
+			}
+		}
+	}
+
+	if trimmed_needle == '' {
+		trimmed_needle = c.cmd
+	}
+
 	return error(
 		'$trimmed_needle not found in defined aliases or in \$PATH
         \$PATH: $c.cfg.paths'

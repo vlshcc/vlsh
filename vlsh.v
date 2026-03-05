@@ -12,7 +12,7 @@ import shellops { ChainPart, builtin_redirect, split_commands, venv_track, venv_
 	venv_untrack, write_redirect }
 import utils
 
-const version = '1.1.5'
+const version = '1.1.5.1'
 
 fn pre_prompt() string {
 	mut current_dir := term.colorize(term.bold, '$os.getwd() ')
@@ -320,14 +320,14 @@ fn dispatch_cmd(cmd string, args []string, mut loaded_plugins []plugins.Plugin, 
 			}
 		}
 		'version' { println('version $version') }
-		'ls' {
-			cmds.ls(args) or {
-				if err.msg() == '__fallthrough__' {
-					// flags were passed — let the system ls handle it
-					local_cfg := cfg.get() or {
-						utils.fail(err.msg())
-						return 1
-					}
+	'ls' {
+		cmds.ls(args) or {
+			if err.msg() == '__fallthrough__' {
+				// flags were passed — let the system ls handle it
+				local_cfg := cfg.get() or {
+					utils.warn('config error: ${err.msg()} -- using fallback system paths')
+					cfg.Cfg{ paths: cfg.fallback_paths.clone() }
+				}
 					mut t := exec.Task{
 						cmd: exec.Cmd_object{
 							cmd  : cmd,
@@ -618,23 +618,23 @@ fn dispatch_cmd(cmd string, args []string, mut loaded_plugins []plugins.Plugin, 
 			if plugins.dispatch(loaded_plugins, cmd, args) {
 				return 0
 			}
-			local_cfg := cfg.get() or {
-				utils.fail(err.msg())
-				return 1
+		local_cfg := cfg.get() or {
+			utils.warn('config error: ${err.msg()} -- using fallback system paths')
+			cfg.Cfg{ paths: cfg.fallback_paths.clone() }
+		}
+		mut t := exec.Task{
+			cmd: exec.Cmd_object{
+				cmd  : cmd,
+				args : args,
+				cfg  : local_cfg
 			}
-			mut t := exec.Task{
-				cmd: exec.Cmd_object{
-					cmd  : cmd,
-					args : args,
-					cfg  : local_cfg
-				}
-			}
-			code := t.prepare_task() or {
-				utils.fail(err.msg())
-				return 1
-			}
-			plugins.run_output_hooks(loaded_plugins, full_cmdline, code, t.last_output)
-			return code
+		}
+		code := t.prepare_task() or {
+			utils.fail(err.msg())
+			return 1
+		}
+		plugins.run_output_hooks(loaded_plugins, full_cmdline, code, t.last_output)
+		return code
 		}
 	}
 	return 0

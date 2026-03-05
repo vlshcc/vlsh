@@ -3,6 +3,7 @@ module cfg
 import os
 
 pub const config_file = [os.home_dir(), '.vlshrc'].join('/')
+pub const fallback_paths = ['/usr/local/bin', '/usr/bin', '/bin']
 
 pub struct Cfg {
 	pub mut:
@@ -307,12 +308,11 @@ fn (mut loc_cfg Cfg) extract_paths(cfd []string) ! {
 			mut split_paths := cleaned_ent.trim_space().split(';')
 			for mut path in split_paths {
 				path = path.trim_right('/')
+				if path == '' {
+					continue
+				}
 				if os.exists(os.real_path(path)) {
 					loc_cfg.paths << path
-				} else {
-					real_path := os.real_path(path)
-
-					return error('could not find ${real_path}')
 				}
 			}
 		}

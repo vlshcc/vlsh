@@ -1,3 +1,30 @@
+## 2026-03-05 — version 1.1.5.1
+
+### Bug fixes
+
+**PATH failsafe to prevent shell softlock**
+- Previously, if all configured `path=` entries in `~/.vlshrc` were empty,
+  non-existent, or otherwise malformed, `extract_paths` returned a hard error
+  that prevented the config from loading. This made it impossible to run any
+  external command — including text editors to fix the config — effectively
+  softlocking the shell.
+- `cfg.extract_paths` now silently skips empty and non-existent path entries
+  instead of returning an error.
+- `exec.find_exe` now falls back to standard system paths
+  (`/usr/local/bin`, `/usr/bin`, `/bin`) when the configured PATH is empty,
+  printing a `WRN|` message so the user knows the failsafe is active.
+- The external-command dispatcher in `vlsh.v` (both the general `else` branch
+  and the `ls` fallthrough) now creates a fallback `Cfg` with the standard
+  system paths when `cfg.get()` fails, instead of silently returning exit
+  code 1.
+- A new `cfg.fallback_paths` constant centralises the list of fallback
+  directories.
+
+### Version bumps
+- Version bumped to `1.1.5.1` in `vlsh.v`, `v.mod`, and `README.md`.
+
+---
+
 ## 2026-02-22 — version 1.1.5
 
 ### Platform support

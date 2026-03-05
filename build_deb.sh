@@ -1,6 +1,8 @@
 #!/bin/sh
-# build_deb.sh — build a binary .deb package for vlsh
-# Requires: v (V compiler), dpkg-deb, dpkg (all present on Ubuntu)
+# build_deb.sh — build vlsh binary, .deb, and .rpm packages
+# Builds whatever package formats the current system supports.
+# Requires: v (V compiler)
+# Optional: dpkg-deb (for .deb), rpmbuild (for .rpm)
 set -e
 
 # ---------------------------------------------------------------------------
@@ -8,20 +10,29 @@ set -e
 # ---------------------------------------------------------------------------
 die() { echo "error: $*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "'$1' is required but not found"; }
+has()  { command -v "$1" >/dev/null 2>&1; }
 
 need v
-need dpkg-deb
-need dpkg
 
 # ---------------------------------------------------------------------------
 # Metadata
 # ---------------------------------------------------------------------------
 VERSION=$(grep "version:" v.mod | sed "s/.*'\(.*\)'.*/\1/")
-ARCH=$(dpkg --print-architecture)
-PKG_NAME="vlsh_${VERSION}_${ARCH}"
-STAGE="${PKG_NAME}"
+MACHINE_ARCH=$(uname -m)
 
-echo "==> Building vlsh ${VERSION} for ${ARCH}"
+# Map uname -m to Debian architecture names
+case "$MACHINE_ARCH" in
+    x86_64)  DEB_ARCH="amd64" ;;
+    aarch64) DEB_ARCH="arm64" ;;
+    armv7l)  DEB_ARCH="armhf" ;;
+    i686)    DEB_ARCH="i386"  ;;
+    *)       DEB_ARCH="$MACHINE_ARCH" ;;
+esac
+
+RPM_ARCH="$MACHINE_ARCH"
+PKG_NAME="vlsh_${VERSION}_${DEB_ARCH}"
+
+echo "==> Building vlsh ${VERSION} for ${MACHINE_ARCH}"
 
 # ---------------------------------------------------------------------------
 # Ensure pkg/deb template files exist (recreate if missing)
@@ -92,58 +103,156 @@ EOF
 fi
 
 # ---------------------------------------------------------------------------
+# Ensure pkg/rpm template files exist (recreate if missing)
+# ---------------------------------------------------------------------------
+if [ ! -f pkg/rpm/vlsh.spec.in ]; then
+    echo "==> Recreating missing pkg/rpm files"
+    mkdir -p pkg/rpm
+
+    cat > pkg/rpm/vlsh.spec.in << 'EOF'
+Name:           vlsh
+Version:        VERSION
+Release:        1%{?dist}
+Summary:        V Lang SHell — a shell written in V
+License:        MIT
+URL:            https://github.com/dvwallin/vlsh
+
+%description
+vlsh is an interactive shell written in the V programming language.
+
+Features:
+- Pipes (cmd1 | cmd2 | cmd3)
+- Output redirection (> and >>)
+- AND-chain execution (cmd1 && cmd2)
+- Tilde expansion (~ and ~/path)
+- Per-command environment variable prefix (VAR=val cmd)
+- Session environment variables (venv add/rm/list)
+- Shared command history across sessions (last 5000 entries)
+- Tab completion for files and directories
+- Aliases (defined in ~/.vlshrc or managed at runtime)
+- Plugin system (~/.vlsh/plugins/)
+- Built-in terminal multiplexer (mux) with split panes
+- Native .vsh script execution via v run
+
+%install
+mkdir -p %{buildroot}%{_bindir}
+install -m 755 %{_sourcedir}/vlsh %{buildroot}%{_bindir}/vlsh
+
+%post
+if ! grep -qxF "/usr/bin/vlsh" /etc/shells 2>/dev/null; then
+    echo "/usr/bin/vlsh" >> /etc/shells
+fi
+
+%preun
+if [ "$1" = "0" ] && [ -f /etc/shells ]; then
+    tmp=$(mktemp)
+    grep -vxF "/usr/bin/vlsh" /etc/shells > "$tmp" || true
+    mv "$tmp" /etc/shells
+fi
+
+%files
+%{_bindir}/vlsh
+EOF
+fi
+
+# ---------------------------------------------------------------------------
 # Compile
 # ---------------------------------------------------------------------------
 echo "==> Compiling"
 v -prod .
 
 # ---------------------------------------------------------------------------
-# Assemble staging tree
+# Build .deb (if tools available)
 # ---------------------------------------------------------------------------
-echo "==> Assembling ${STAGE}/"
-rm -rf "$STAGE"
-mkdir -p "${STAGE}/DEBIAN"
-mkdir -p "${STAGE}/usr/bin"
+if has dpkg-deb; then
+    echo "==> Assembling .deb staging tree"
+    STAGE="${PKG_NAME}"
+    rm -rf "$STAGE"
+    mkdir -p "${STAGE}/DEBIAN"
+    mkdir -p "${STAGE}/usr/bin"
 
-cp vlsh "${STAGE}/usr/bin/vlsh"
-chmod 755 "${STAGE}/usr/bin/vlsh"
+    cp vlsh "${STAGE}/usr/bin/vlsh"
+    chmod 755 "${STAGE}/usr/bin/vlsh"
 
-INSTALLED_SIZE=$(du -sk "${STAGE}/usr" | cut -f1)
+    INSTALLED_SIZE=$(du -sk "${STAGE}/usr" | cut -f1)
+
+    sed \
+        -e "s/VERSION/${VERSION}/g" \
+        -e "s/ARCH/${DEB_ARCH}/g" \
+        -e "s/INSTALLED_SIZE/${INSTALLED_SIZE}/g" \
+        pkg/deb/control.in > "${STAGE}/DEBIAN/control"
+
+    cp pkg/deb/postinst "${STAGE}/DEBIAN/postinst"
+    cp pkg/deb/prerm    "${STAGE}/DEBIAN/prerm"
+    chmod 755 "${STAGE}/DEBIAN/postinst"
+    chmod 755 "${STAGE}/DEBIAN/prerm"
+
+    echo "==> Building ${PKG_NAME}.deb"
+    dpkg-deb --build --root-owner-group "$STAGE"
+    rm -rf "$STAGE"
+
+    mkdir -p builds
+    mv "${PKG_NAME}.deb" builds/
+    BUILT_DEB=1
+else
+    BUILT_DEB=0
+    echo "==> Skipping .deb (dpkg-deb not found — install the 'dpkg' package to enable)"
+fi
 
 # ---------------------------------------------------------------------------
-# Control file
+# Build .rpm (if tools available)
 # ---------------------------------------------------------------------------
-sed \
-    -e "s/VERSION/${VERSION}/g" \
-    -e "s/ARCH/${ARCH}/g" \
-    -e "s/INSTALLED_SIZE/${INSTALLED_SIZE}/g" \
-    pkg/deb/control.in > "${STAGE}/DEBIAN/control"
+if has rpmbuild; then
+    echo "==> Building .rpm"
+    RPMTOP=$(mktemp -d)
+    mkdir -p "$RPMTOP"/{SPECS,SOURCES,BUILD,RPMS,SRPMS}
+
+    cp vlsh "$RPMTOP/SOURCES/"
+
+    sed -e "s/VERSION/${VERSION}/g" \
+        pkg/rpm/vlsh.spec.in > "$RPMTOP/SPECS/vlsh.spec"
+
+    rpmbuild --define "_topdir $RPMTOP" -bb "$RPMTOP/SPECS/vlsh.spec"
+
+    mkdir -p builds
+    RPM_FILE=$(find "$RPMTOP/RPMS" -name "vlsh-*.rpm" -type f | head -1)
+    if [ -n "$RPM_FILE" ]; then
+        RPM_BASENAME=$(basename "$RPM_FILE")
+        cp "$RPM_FILE" builds/
+        echo "==> Built builds/${RPM_BASENAME}"
+    fi
+
+    rm -rf "$RPMTOP"
+    BUILT_RPM=1
+else
+    BUILT_RPM=0
+    echo "==> Skipping .rpm (rpmbuild not found — install the 'rpm-build' package to enable)"
+fi
 
 # ---------------------------------------------------------------------------
-# Maintainer scripts
+# Standalone binary
 # ---------------------------------------------------------------------------
-cp pkg/deb/postinst "${STAGE}/DEBIAN/postinst"
-cp pkg/deb/prerm    "${STAGE}/DEBIAN/prerm"
-chmod 755 "${STAGE}/DEBIAN/postinst"
-chmod 755 "${STAGE}/DEBIAN/prerm"
-
-# ---------------------------------------------------------------------------
-# Build .deb
-# ---------------------------------------------------------------------------
-echo "==> Building ${PKG_NAME}.deb"
-dpkg-deb --build --root-owner-group "$STAGE"
-rm -rf "$STAGE"
-
 mkdir -p builds
-mv "${PKG_NAME}.deb" builds/
 cp vlsh "builds/${PKG_NAME}_linux"
 
 echo ""
-echo "Done:"
-echo "  builds/${PKG_NAME}.deb"
-echo "  builds/${PKG_NAME}_linux"
+echo "Done. Built artifacts in builds/:"
+ls -1 builds/${PKG_NAME}* 2>/dev/null | sed 's/^/  /'
+if [ "$BUILT_RPM" = "1" ]; then
+    RPM_FILE=$(ls builds/vlsh-${VERSION}-1.*.rpm 2>/dev/null | head -1)
+    if [ -n "$RPM_FILE" ]; then
+        echo "  ${RPM_FILE}"
+    fi
+fi
 echo ""
-echo "Install:       sudo dpkg -i builds/${PKG_NAME}.deb"
-echo "Verify:        dpkg -l vlsh"
-echo "Set as shell:  chsh -s /usr/bin/vlsh"
-echo "Uninstall:     sudo dpkg -r vlsh"
+if [ "$BUILT_DEB" = "1" ]; then
+    echo "Install .deb:   sudo dpkg -i builds/${PKG_NAME}.deb"
+    echo "Verify .deb:    dpkg -l vlsh"
+    echo "Uninstall .deb: sudo dpkg -r vlsh"
+fi
+if [ "$BUILT_RPM" = "1" ] && [ -n "$RPM_FILE" ]; then
+    echo "Install .rpm:   sudo rpm -U ${RPM_FILE}"
+    echo "Verify .rpm:    rpm -q vlsh"
+    echo "Uninstall .rpm: sudo rpm -e vlsh"
+fi
+echo "Set as shell:   chsh -s /usr/bin/vlsh"
