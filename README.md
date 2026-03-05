@@ -58,6 +58,13 @@ sudo dpkg -i vlsh_1.1.5.1_amd64.deb
 The package installs the binary to `/usr/bin/vlsh` and automatically adds it
 to `/etc/shells` via the postinst script.
 
+**Fedora / RHEL — install via `.rpm`:**
+
+```sh
+curl -LO https://github.com/vlshcc/vlsh/releases/download/v1.1.5.1/vlsh-1.1.5.1-1.x86_64.rpm
+sudo rpm -U vlsh-1.1.5.1-1.x86_64.rpm
+```
+
 **Other Linux — standalone binary:**
 
 ```sh
