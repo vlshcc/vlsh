@@ -543,6 +543,7 @@ fn vlsh_completion(mut r VlshReadline) {
 		}
 	} else {
 		r.last_prefix_completion = r.current
+		r.last_completion_offset = 0
 	}
 	r.current = opts[r.last_completion_offset].runes()
 	r.cursor = r.current.len
@@ -643,11 +644,11 @@ fn vlsh_execute(mut r VlshReadline, a VlshAction, c int) bool {
 		.eof         { return vlsh_eof(mut r) }
 		.cancel_line { return vlsh_cancel_line(mut r) }
 		.insert_character {
-			r.last_prefix_completion.clear()
+			vlsh_completion_clear(mut r)
 			vlsh_insert_character(mut r, c)
 		}
 		.commit_line {
-			r.last_prefix_completion.clear()
+			vlsh_completion_clear(mut r)
 			return vlsh_commit_line(mut r)
 		}
 		.delete_left { vlsh_delete_character(mut r) }
