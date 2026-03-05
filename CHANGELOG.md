@@ -1,3 +1,25 @@
+## 2026-03-05 — version 1.1.5.2
+
+### Bug fixes
+
+**Always capture stdout for plugin output_hooks**
+- Previously, `set_redirect_stdio()` was only called when the command had
+  piped input or `intercept_stdio` was set. Commands that ran directly on the
+  terminal never had their stdout captured, so plugin `output_hook`s (e.g. the
+  hist plugin) missed their output entirely.
+- `run()` in `exec/exec.v` now calls `child.set_redirect_stdio()` unconditionally
+  and always slurps stdout. The captured output is stored in `last_output` and
+  printed, ensuring every command's output is available to hooks.
+- The stdin pipe close (`C.close(child.stdio_fd[0])`) is also now unconditional,
+  removing the separate branch that left it open for non-piped commands.
+- `ls` colour flag changed from `--color=auto` to `--color=always` so that
+  colour output is preserved when stdout is captured through the redirect.
+
+### Version bumps
+- Version bumped to `1.1.5.2` in `vlsh.v`, `v.mod`, and `README.md`.
+
+---
+
 ## 2026-03-05 — version 1.1.5.1
 
 ### Bug fixes

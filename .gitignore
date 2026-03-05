@@ -1,0 +1,10 @@
+# Compiled binary
+vlsh
+
+# Build artifacts
+builds/
+
+# V compiler artifacts
+*.o
+*.so
+*.dylib

@@ -12,7 +12,7 @@ import shellops { ChainPart, builtin_redirect, split_commands, venv_track, venv_
 	venv_untrack, write_redirect }
 import utils
 
-const version = '1.1.5.1'
+const version = '1.1.5.2'
 
 fn pre_prompt() string {
 	mut current_dir := term.colorize(term.bold, '$os.getwd() ')

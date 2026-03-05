@@ -1,9 +1,11 @@
 #!/bin/sh
-# build_deb.sh — build vlsh binary, .deb, and .rpm packages
+# pkg/build.sh — build vlsh binary, .deb, and .rpm packages
 # Builds whatever package formats the current system supports.
 # Requires: v (V compiler)
 # Optional: dpkg-deb (for .deb), rpmbuild (for .rpm)
 set -e
+
+cd "$(dirname "$0")/.."
 
 # ---------------------------------------------------------------------------
 # Helpers

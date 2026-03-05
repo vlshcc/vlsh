@@ -45,14 +45,14 @@ to read, modify, and extend.
 
 ### Pre-built packages (recommended)
 
-The latest release is **v1.1.5.1**. Pre-built packages for 64-bit Linux are
+The latest release is **v1.1.5.2**. Pre-built packages for 64-bit Linux are
 available on the [releases page](https://github.com/vlshcc/vlsh/releases).
 
 **Debian / Ubuntu — install via `.deb`:**
 
 ```sh
-curl -LO https://github.com/vlshcc/vlsh/releases/download/v1.1.5.1/vlsh_1.1.5.1_amd64.deb
-sudo dpkg -i vlsh_1.1.5.1_amd64.deb
+curl -LO https://github.com/vlshcc/vlsh/releases/download/v1.1.5.2/vlsh_1.1.5.2_amd64.deb
+sudo dpkg -i vlsh_1.1.5.2_amd64.deb
 ```
 
 The package installs the binary to `/usr/bin/vlsh` and automatically adds it
@@ -61,16 +61,16 @@ to `/etc/shells` via the postinst script.
 **Fedora / RHEL — install via `.rpm`:**
 
 ```sh
-curl -LO https://github.com/vlshcc/vlsh/releases/download/v1.1.5.1/vlsh-1.1.5.1-1.x86_64.rpm
-sudo rpm -U vlsh-1.1.5.1-1.x86_64.rpm
+curl -LO https://github.com/vlshcc/vlsh/releases/download/v1.1.5.2/vlsh-1.1.5.2-1.x86_64.rpm
+sudo rpm -U vlsh-1.1.5.2-1.x86_64.rpm
 ```
 
 **Other Linux — standalone binary:**
 
 ```sh
-curl -LO https://github.com/vlshcc/vlsh/releases/download/v1.1.5.1/vlsh_1.1.5.1_amd64_linux
-chmod +x vlsh_1.1.5.1_amd64_linux
-sudo mv vlsh_1.1.5.1_amd64_linux /usr/local/bin/vlsh
+curl -LO https://github.com/vlshcc/vlsh/releases/download/v1.1.5.2/vlsh_1.1.5.2_amd64_linux
+chmod +x vlsh_1.1.5.2_amd64_linux
+sudo mv vlsh_1.1.5.2_amd64_linux /usr/local/bin/vlsh
 ```
 
 ### Prerequisites (from source)

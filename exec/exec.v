@@ -109,10 +109,9 @@ pub struct Task {
 	*/
 	last_exit_code int
 	/*
-	last_output holds the stdout that was captured from the last command
-	in the pipeline.  It is populated when output was naturally intercepted
-	(e.g. the final stage of a pipe chain received piped input).  For
-	commands that run directly on the terminal it remains empty.
+	last_output holds the captured stdout of the last command that ran.
+	It is always populated for standalone commands and pipe chain tails
+	so that plugin output_hooks can record terminal history.
 	*/
 	last_output string
 }
@@ -341,10 +340,9 @@ fn (mut t Task) run(c Cmd_object) (int) {
 		}
 	}
 
-	// set_redirect_stdio() must be called before run()
-	if effective_input != '' || c.intercept_stdio {
-		child.set_redirect_stdio()
-	}
+	// Always redirect stdio so every command's stdout is captured for
+	// plugin output_hooks (e.g. the hist plugin's terminal history).
+	child.set_redirect_stdio()
 
 	child.run()
 
@@ -360,13 +358,10 @@ fn (mut t Task) run(c Cmd_object) (int) {
 	Close the write-end of the stdin pipe after writing (or immediately
 	if there was no input). This signals EOF to the child so it stops
 	waiting for more input. Without this, commands like `wc` that read
-	until EOF will block forever. It also prevents interactive programs
-	like `more` from hanging on an open-but-empty stdin pipe.
+	until EOF will block forever.
 	*/
-	if effective_input != '' || c.intercept_stdio {
-		C.close(child.stdio_fd[0])
-		child.stdio_fd[0] = -1
-	}
+	C.close(child.stdio_fd[0])
+	child.stdio_fd[0] = -1
 
 	if c.intercept_stdio && c.next_pipe_index >= 0 && c.redirect_file == '' {
 		/*
@@ -390,20 +385,12 @@ fn (mut t Task) run(c Cmd_object) (int) {
 		}
 		f.write_string(output) or {}
 		f.close()
-	} else if effective_input != '' {
-		/*
-		last command in the pipe chain (or with stdin redirection): stdout
-		was redirected so we could write to its stdin. slurp and print its
-		output, then wait.
-		*/
+	} else {
 		output := child.stdout_slurp()
 		child.wait()
 		t.last_exit_code = child.code
 		t.last_output = output
 		print(output)
-	} else {
-		child.wait()
-		t.last_exit_code = child.code
 	}
 
 	child.close()
@@ -550,7 +537,7 @@ fn (mut c Cmd_object) internal_cmd_modifiers() {
 	match c.cmd {
 		'ls' {
 			if !c.args.join(' ').contains('--color') {
-				c.args << '--color=auto'
+				c.args << '--color=always'
 			}
 		}
 		else {}
