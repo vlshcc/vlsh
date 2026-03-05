@@ -3,6 +3,7 @@
 # Builds whatever package formats the current system supports.
 # Requires: v (V compiler)
 # Optional: dpkg-deb (for .deb), rpmbuild (for .rpm)
+# Cross-compilation: pass --freebsd to cross-compile for FreeBSD (requires clang + lld)
 set -e
 
 cd "$(dirname "$0")/.."
@@ -13,6 +14,21 @@ cd "$(dirname "$0")/.."
 die() { echo "error: $*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "'$1' is required but not found"; }
 has()  { command -v "$1" >/dev/null 2>&1; }
+
+# ---------------------------------------------------------------------------
+# Parse arguments
+# ---------------------------------------------------------------------------
+TARGET_OS="linux"
+for arg in "$@"; do
+    case "$arg" in
+        --freebsd) TARGET_OS="freebsd" ;;
+        --help|-h)
+            echo "Usage: $0 [--freebsd]"
+            echo "  --freebsd  Cross-compile for FreeBSD (requires clang + lld)"
+            exit 0
+            ;;
+    esac
+done
 
 need v
 
@@ -34,7 +50,35 @@ esac
 RPM_ARCH="$MACHINE_ARCH"
 PKG_NAME="vlsh_${VERSION}_${DEB_ARCH}"
 
-echo "==> Building vlsh ${VERSION} for ${MACHINE_ARCH}"
+echo "==> Building vlsh ${VERSION} for ${MACHINE_ARCH} (target: ${TARGET_OS})"
+
+# ---------------------------------------------------------------------------
+# FreeBSD cross-compilation
+# ---------------------------------------------------------------------------
+if [ "$TARGET_OS" = "freebsd" ]; then
+    need clang
+    has ld.lld || die "'ld.lld' is required for FreeBSD cross-compilation (install the 'lld' package)"
+
+    FBSD_SYSROOT="$HOME/.vmodules/freebsdroot"
+
+    echo "==> Cross-compiling for FreeBSD"
+    echo "    (V will auto-download the FreeBSD sysroot on first run — ~458 MB)"
+
+    # V's thirdparty object compilation doesn't add FreeBSD target flags,
+    # so we inject them via CFLAGS to ensure gc.o, mbedtls, etc. are
+    # compiled against the FreeBSD sysroot rather than the host's glibc.
+    rm -rf "$HOME/.vmodules/.cache"
+    CFLAGS="--target=x86_64-unknown-freebsd14.0 --sysroot=${FBSD_SYSROOT} -I${FBSD_SYSROOT}/usr/include" \
+        v -os freebsd -prod .
+
+    mkdir -p builds
+    cp vlsh "builds/vlsh_${VERSION}_${DEB_ARCH}_freebsd"
+
+    echo ""
+    echo "Done. Built artifact:"
+    echo "  builds/vlsh_${VERSION}_${DEB_ARCH}_freebsd"
+    exit 0
+fi
 
 # ---------------------------------------------------------------------------
 # Ensure pkg/deb template files exist (recreate if missing)

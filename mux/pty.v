@@ -1,6 +1,7 @@
 module mux
 
 #flag -lutil
+#flag freebsd -lcompiler_rt
 #flag -I @VMODROOT/mux
 #include "pty_helpers.h"
 

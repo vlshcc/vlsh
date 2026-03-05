@@ -3,6 +3,8 @@
 
 #if defined(__APPLE__)
 #include <util.h>
+#elif defined(__FreeBSD__)
+#include <libutil.h>
 #else
 #include <pty.h>
 #endif
