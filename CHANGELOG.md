@@ -1,4 +1,25 @@
-## 2026-03-05 — version 1.1.7.1
+## 2026-03-06 — version 1.1.7.1
+
+### Bug fixes
+
+**Plugin compilation uses runtime V lookup instead of compile-time path**
+- `plugins/plugins.v` used the V compile-time constant `@VEXE` to locate the
+  V compiler for compiling plugins. This baked the absolute path of the build
+  machine's V binary (e.g. `/home/sarm/repos/v/v`) into the vlsh binary, so
+  `plugins reload` failed on any other system where that path did not exist.
+- Replaced the `const v_compiler = @VEXE` compile-time constant with a
+  `find_v_compiler()` function that searches `$PATH` at runtime, matching the
+  approach already used by `exec/exec.v` for `.vsh` scripts.  The lookup also
+  skips directories named `v` to avoid false matches.
+- When `v` is not found in `$PATH`, a clear error message is printed instead
+  of a cryptic "file not found" failure.
+
+**Startup no longer blocks on plugin compilation**
+- `plugins.load()` now accepts a `compile` boolean parameter.  On startup the
+  shell passes `false`, so only pre-compiled plugin binaries are loaded — the
+  V compiler is never invoked and the shell cannot hang waiting for it.
+  Explicit operations (`plugins reload`, `plugins enable`, `plugins update`)
+  pass `true` to compile outdated plugins as before.
 
 ### Platform support
 

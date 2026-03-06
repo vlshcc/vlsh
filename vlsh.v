@@ -111,7 +111,7 @@ fn main() {
 	}
 
 	term.clear()
-	mut loaded_plugins := plugins.load()
+	mut loaded_plugins := plugins.load(false)
 	mut r := VlshReadline{}
 	r.completion_callback = fn [mut loaded_plugins](input string) []string {
 		return tab_complete(input, loaded_plugins)
@@ -361,7 +361,7 @@ fn dispatch_cmd(cmd string, args []string, mut loaded_plugins []plugins.Plugin, 
 			subcmd := if args.len > 0 { args[0] } else { 'list' }
 			match subcmd {
 				'reload' {
-					loaded_plugins = plugins.load()
+					loaded_plugins = plugins.load(true)
 					println('plugins: ${loaded_plugins.len} loaded')
 				}
 				'list' {
@@ -396,14 +396,14 @@ fn dispatch_cmd(cmd string, args []string, mut loaded_plugins []plugins.Plugin, 
 							utils.fail(err.msg())
 							return 1
 						}
-						loaded_plugins = plugins.load()
+						loaded_plugins = plugins.load(true)
 						println('all plugins enabled (${loaded_plugins.len} loaded)')
 					} else {
 						plugins.enable(name) or {
 							utils.fail(err.msg())
 							return 1
 						}
-						loaded_plugins = plugins.load()
+						loaded_plugins = plugins.load(true)
 						println('${name} enabled')
 					}
 				}
@@ -506,7 +506,7 @@ fn dispatch_cmd(cmd string, args []string, mut loaded_plugins []plugins.Plugin, 
 							any_updated = true
 						}
 						if any_updated {
-							loaded_plugins = plugins.load()
+							loaded_plugins = plugins.load(true)
 						}
 					} else {
 						name := args[1]
@@ -515,7 +515,7 @@ fn dispatch_cmd(cmd string, args []string, mut loaded_plugins []plugins.Plugin, 
 							return 1
 						}
 						println('${name}: updated to ${new_ver}')
-						loaded_plugins = plugins.load()
+						loaded_plugins = plugins.load(true)
 					}
 				}
 				'delete' {

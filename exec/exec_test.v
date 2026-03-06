@@ -302,3 +302,35 @@ fn test_get_search_paths_falls_back_when_empty() {
 	assert '/usr/bin' in paths
 	assert '/bin' in paths
 }
+
+// ---------------------------------------------------------------------------
+// internal_cmd_modifiers
+// ---------------------------------------------------------------------------
+
+fn test_internal_cmd_modifiers_adds_color_to_ls() {
+	mut c := Cmd_object{
+		cmd:  'ls',
+		args: ['-la'],
+	}
+	c.internal_cmd_modifiers()
+	assert '--color=always' in c.args
+}
+
+fn test_internal_cmd_modifiers_does_not_duplicate_color() {
+	mut c := Cmd_object{
+		cmd:  'ls',
+		args: ['--color=auto'],
+	}
+	c.internal_cmd_modifiers()
+	color_count := c.args.filter(it.contains('--color')).len
+	assert color_count == 1
+}
+
+fn test_internal_cmd_modifiers_noop_for_other_commands() {
+	mut c := Cmd_object{
+		cmd:  'cat',
+		args: ['file.txt'],
+	}
+	c.internal_cmd_modifiers()
+	assert c.args == ['file.txt']
+}

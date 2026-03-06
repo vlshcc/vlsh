@@ -211,3 +211,45 @@ fn test_is_env_assign_lowercase_key() {
 fn test_is_env_assign_key_with_digits_after_first() {
 	assert is_env_assign('VAR2=value') == true
 }
+
+// ---------------------------------------------------------------------------
+// glob_expand
+// ---------------------------------------------------------------------------
+
+fn test_glob_expand_quoted_token_returned_unchanged() {
+	assert glob_expand('*.v', true) == ['*.v']
+}
+
+fn test_glob_expand_no_wildcards_returned_unchanged() {
+	assert glob_expand('hello', false) == ['hello']
+}
+
+fn test_glob_expand_star_in_tmp() {
+	pid := os.getpid()
+	dir := '/tmp/vlsh_glob_test_${pid}'
+	os.mkdir_all(dir) or { assert false, err.msg(); return }
+	defer { os.rmdir_all(dir) or {} }
+	os.write_file('${dir}/aaa.txt', '') or {}
+	os.write_file('${dir}/bbb.txt', '') or {}
+	result := glob_expand('${dir}/*.txt', false)
+	assert result.len == 2
+	assert result.any(it.contains('aaa.txt'))
+	assert result.any(it.contains('bbb.txt'))
+}
+
+fn test_glob_expand_no_matches_returns_literal() {
+	result := glob_expand('/tmp/vlsh_glob_noexist_xyzzy_/*.xyz', false)
+	assert result == ['/tmp/vlsh_glob_noexist_xyzzy_/*.xyz']
+}
+
+fn test_glob_expand_with_subdirectory_pattern() {
+	pid := os.getpid()
+	dir := '/tmp/vlsh_glob_sub_${pid}'
+	sub := '${dir}/inner'
+	os.mkdir_all(sub) or { assert false, err.msg(); return }
+	defer { os.rmdir_all(dir) or {} }
+	os.write_file('${sub}/foo.txt', '') or {}
+	result := glob_expand('${dir}/inner/*.txt', false)
+	assert result.len == 1
+	assert result[0].contains('foo.txt')
+}

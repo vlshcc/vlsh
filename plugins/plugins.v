@@ -7,7 +7,7 @@ import json
 fn find_v_compiler() string {
 	for dir in os.getenv('PATH').split(':').filter(it.len > 0) {
 		full := os.join_path(dir, 'v')
-		if os.exists(full) {
+		if os.exists(full) && !os.is_dir(full) {
 			return full
 		}
 	}
@@ -291,10 +291,11 @@ pub fn enable(name string) ! {
 	os.write_file(disabled_file(), filtered.join('\n') + '\n') or { return err }
 }
 
-// load scans ~/.vlsh/plugins/ for versioned plugin dirs, compiles any that are
-// out of date, queries each binary for its capabilities, and returns the ready
-// plugin list.
-pub fn load() []Plugin {
+// load scans ~/.vlsh/plugins/ for versioned plugin dirs, optionally compiles
+// any that are out of date, queries each binary for its capabilities, and
+// returns the ready plugin list.  Pass compile=false on startup to avoid
+// blocking on the V compiler; pass compile=true for explicit reloads.
+pub fn load(compile bool) []Plugin {
 	src_dir := plugin_src_dir()
 	bin_dir := plugin_bin_dir()
 
@@ -308,11 +309,11 @@ pub fn load() []Plugin {
 		return []
 	}
 
-	v_exe := find_v_compiler()
-	if v_exe == '' {
+	v_exe := if compile { find_v_compiler() } else { '' }
+	if compile && v_exe == '' {
 		eprintln('vlsh: v compiler not found in PATH — cannot compile plugins')
-		return []
 	}
+
 	installed := list_installed()
 	dis := read_disabled()
 	mut result := []Plugin{}
@@ -323,12 +324,16 @@ pub fn load() []Plugin {
 		}
 		bin := os.join_path(bin_dir, ip.name)
 
-		if src_is_newer(ip.src, bin) {
-			compile := os.execute('${v_exe} -o ${bin} ${ip.src}')
-			if compile.exit_code != 0 {
-				eprintln('vlsh: failed to compile plugin "${ip.name}":\n${compile.output.trim_space()}')
+		if compile && v_exe != '' && src_is_newer(ip.src, bin) {
+			res := os.execute('${v_exe} -o ${bin} ${ip.src}')
+			if res.exit_code != 0 {
+				eprintln('vlsh: failed to compile plugin "${ip.name}":\n${res.output.trim_space()}')
 				continue
 			}
+		}
+
+		if !os.exists(bin) {
+			continue
 		}
 
 		caps := os.execute('${bin} capabilities')
