@@ -1,3 +1,28 @@
+## 2026-04-11
+
+### Added
+
+**`plugins reinstall <name>`**
+- New subcommand and `plugins.reinstall_plugin()` in `plugins/plugins.v`: removes the
+  local plugin tree and compiled binary, then downloads and installs the latest
+  version from the remote repository (same source as `plugins install`).
+- Wired in `vlsh.v` with `plugins load(true)` after success; `cmds/cmds.v` help
+  text updated.
+
+**`2>&1` redirection (external commands)**
+- `parse_redirect()` in `exec/exec.v` recognises the `2>&1` token and strips it
+  from the argument list. When stdout is captured (pipes, `>` / `>>`, or
+  stdin from `<` / a pipe), stderr is appended to the captured stdout (after
+  the child exits), similar to bash for the common case `command > file 2>&1`
+  and `command 2>&1 | …`. Interleaved byte order is not preserved (stdout
+  then stderr). Tests in `exec/exec_test.v`.
+
+**Documentation**
+- `README.md`: features list, built-in commands table, redirection section,
+  plugin management list, and `plugins` module API summary updated for the above.
+
+---
+
 ## 2026-03-06 — version 1.1.7.1
 
 ### Bug fixes

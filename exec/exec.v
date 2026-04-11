@@ -21,6 +21,8 @@ pub struct Cmd_object{
 	redirect_file			string
 	redirect_append			bool
 	stdin_file				string
+	// merge_stderr_to_stdout: bash 2>&1 — include stderr in captured stdout when piping or redirecting.
+	merge_stderr_to_stdout	bool
 }
 
 pub struct Task {
@@ -116,18 +118,22 @@ fn norm_pipe(i string) string {
 	return r.join('|')
 }
 
-// parse_redirect scans a token list for >, >>, and < operators and extracts
-// their filenames.  Returns the cleaned args, output file, append flag, and
-// input (stdin) file.
-fn parse_redirect(tokens []string) ([]string, string, bool, string) {
+// parse_redirect scans a token list for >, >>, <, and 2>&1.  Returns the cleaned
+// args, output file, append flag, stdin file, and whether stderr should be merged into stdout.
+fn parse_redirect(tokens []string) ([]string, string, bool, string, bool) {
 	mut out_args     := []string{}
 	mut rfile        := ''
 	mut rappend      := false
 	mut stdin_file   := ''
+	mut merge_stderr := false
 	mut skip_next    := false
 	for i, tok in tokens {
 		if skip_next {
 			skip_next = false
+			continue
+		}
+		if tok == '2>&1' {
+			merge_stderr = true
 			continue
 		}
 		if tok == '>>' {
@@ -151,7 +157,7 @@ fn parse_redirect(tokens []string) ([]string, string, bool, string) {
 			out_args << tok
 		}
 	}
-	return out_args, rfile, rappend, stdin_file
+	return out_args, rfile, rappend, stdin_file, merge_stderr
 }
 
 fn (mut t Task) walk_pipes() {
@@ -167,8 +173,8 @@ fn (mut t Task) walk_pipes() {
 		if split_pipe.len > 1 {
 			raw_args << split_pipe[1..]
 		}
-		// Extract any >, >>, or < redirection from the argument list.
-		args, rfile, rappend, stdin_file := parse_redirect(raw_args)
+		// Extract any >, >>, <, or 2>&1 from the argument list.
+		args, rfile, rappend, stdin_file, merge_stderr := parse_redirect(raw_args)
 
 		mut intercept := true
 		mut next_index := index
@@ -180,15 +186,16 @@ fn (mut t Task) walk_pipes() {
 		effective_intercept    := intercept || rfile != ''
 		effective_redirect_out := effective_intercept
 		obj := Cmd_object{
-			cmd:                cmd,
-			args:               args,
-			aliases:            t.cmd.aliases,
-			intercept_stdio:    effective_intercept,
-			set_redirect_stdio: effective_redirect_out,
-			next_pipe_index:    next_index,
-			redirect_file:      rfile,
-			redirect_append:    rappend,
-			stdin_file:         stdin_file,
+			cmd:                    cmd,
+			args:                   args,
+			aliases:                t.cmd.aliases,
+			intercept_stdio:        effective_intercept,
+			set_redirect_stdio:     effective_redirect_out,
+			next_pipe_index:        next_index,
+			redirect_file:          rfile,
+			redirect_append:        rappend,
+			stdin_file:             stdin_file,
+			merge_stderr_to_stdout: merge_stderr,
 		}
 		if index == 0 {
 			t.cmd = obj
@@ -311,11 +318,17 @@ fn (mut t Task) run(c Cmd_object) (int) {
 		child.stdio_fd[0] = -1
 
 		if c.intercept_stdio && c.next_pipe_index >= 0 && c.redirect_file == '' {
-			output := child.stdout_slurp()
+			mut output := child.stdout_slurp()
+			if c.merge_stderr_to_stdout {
+				output += child.stderr_slurp()
+			}
 			child.wait()
 			t.pipe_cmds[c.next_pipe_index].input = output
 		} else if c.redirect_file != '' {
-			output := child.stdout_slurp()
+			mut output := child.stdout_slurp()
+			if c.merge_stderr_to_stdout {
+				output += child.stderr_slurp()
+			}
 			child.wait()
 			t.last_exit_code = child.code
 			flag := if c.redirect_append { 'a' } else { 'w' }
@@ -326,7 +339,10 @@ fn (mut t Task) run(c Cmd_object) (int) {
 			f.write_string(output) or {}
 			f.close()
 		} else {
-			output := child.stdout_slurp()
+			mut output := child.stdout_slurp()
+			if c.merge_stderr_to_stdout {
+				output += child.stderr_slurp()
+			}
 			child.wait()
 			t.last_exit_code = child.code
 			t.last_output = output

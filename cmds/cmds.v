@@ -28,7 +28,7 @@ pub fn help(version string, args []string) {
 		HelpEntry{'ls',      'List directory contents (built-in colorised view).'},
 		HelpEntry{'mux',     'Enter multiplexer mode (split panes, Ctrl+V prefix).'},
 		HelpEntry{'ocp',     'Copy, overriding an existing destination file.'},
-		HelpEntry{'plugins', 'Manage plugins (list / enable / disable / install / delete / remote).'},
+		HelpEntry{'plugins', 'Manage plugins (list / enable / disable / install / delete / reinstall / remote).'},
 		HelpEntry{'source',  'Execute commands from a file in the current session.'},
 		HelpEntry{'style',   'Manage prompt colors (list / set <key> <r> <g> <b>).'},
 		HelpEntry{'unset',   'Remove environment variables (unset KEY [KEY...]).'},
@@ -138,6 +138,7 @@ fn help_sub(cmd string) {
 			println('  ${term.bold('plugins install')} <name>        Download and install the latest version of a plugin.')
 			println('  ${term.bold('plugins update')} [name]         Update one or all installed plugins to their latest version.')
 			println('  ${term.bold('plugins delete')} <name>         Delete an installed plugin.')
+			println('  ${term.bold('plugins reinstall')} <name>       Remove a plugin locally and install the latest from remote.')
 			println('')
 			println('Plugin capabilities:')
 			println('  command <name>   Register a new shell command.')
@@ -156,7 +157,8 @@ fn help_sub(cmd string) {
 			println('')
 			println('Remote plugins are fetched from https://github.com/vlshcc/plugins.')
 			println('Each plugin has a DESC metadata file with name, author, and description.')
-			println('After installing a plugin run "plugins reload" to activate it.')
+			println('After "plugins install" run "plugins reload" to activate; "plugins reinstall"')
+			println('removes the local copy, installs the latest from remote, and reloads plugins.')
 		}
 		'style' {
 			println('${term.bold('style')} - Manage prompt colors')

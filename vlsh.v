@@ -531,8 +531,21 @@ fn dispatch_cmd(cmd string, args []string, mut loaded_plugins []plugins.Plugin, 
 					loaded_plugins = loaded_plugins.filter(it.name != name)
 					println('${name} deleted')
 				}
+				'reinstall' {
+					if args.len < 2 {
+						utils.fail('usage: plugins reinstall <name>')
+						return 1
+					}
+					name := args[1]
+					ver := plugins.reinstall_plugin(name) or {
+						utils.fail(err.msg())
+						return 1
+					}
+					loaded_plugins = plugins.load(true)
+					println('${name} ${ver} reinstalled (${loaded_plugins.len} plugins loaded)')
+				}
 				else {
-					utils.fail('plugins: unknown subcommand "${subcmd}" (available: list, reload, enable, disable, remote, search, install, update, delete)')
+					utils.fail('plugins: unknown subcommand "${subcmd}" (available: list, reload, enable, disable, remote, search, install, update, delete, reinstall)')
 				}
 			}
 		}

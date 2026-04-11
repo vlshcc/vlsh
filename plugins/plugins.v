@@ -548,6 +548,13 @@ pub fn install(name string) !string {
 	return version
 }
 
+// reinstall_plugin removes the local plugin (sources and binary) and installs
+// the latest version from the remote repository again.
+pub fn reinstall_plugin(name string) !string {
+	delete_plugin(name)!
+	return install(name)!
+}
+
 // update_plugin upgrades an installed plugin to the latest remote version.
 // Returns the new version string, or an error if already at latest.
 pub fn update_plugin(name string) !string {

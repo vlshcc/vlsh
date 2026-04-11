@@ -6,7 +6,7 @@ to read, modify, and extend.
 
 ### Features at a glance
 
-- **Pipes, redirection, and command chaining** — `cmd1 | cmd2`, `> file`, `>> file`, `< file`; AND-chains (`&&`), OR-chains (`||`), and unconditional sequences (`;`)
+- **Pipes, redirection, and command chaining** — `cmd1 | cmd2`, `> file`, `>> file`, `< file`, and `2>&1` (merge stderr into captured stdout when piping or redirecting); AND-chains (`&&`), OR-chains (`||`), and unconditional sequences (`;`)
 - **Glob expansion** — `*.v`, `./*.deb`, `~/docs/**` expanded before execution
 - **Tilde and environment-variable expansion** — `~/path`, `$VAR`, `VAR=val cmd`
 - **Command history** — up/down arrow browsing and `Ctrl+R` incremental search;
@@ -27,7 +27,8 @@ to read, modify, and extend.
   help text via the `help` capability (surfaced through the built-in `help` command).
   Search plugins by name or description with `plugins search`, install the
   latest version with `plugins install`, keep them up to date with
-  `plugins update`, and remove them with `plugins delete`. The official
+  `plugins update`, remove them with `plugins delete`, or purge and
+  re-fetch the latest with `plugins reinstall`. The official
   repository is at https://github.com/vlshcc/plugins.
 - **Terminal multiplexer** — built-in `mux` command splits the terminal into
   resizable panes, each running its own shell. Supports mouse selection,
@@ -221,6 +222,7 @@ lines use the config syntax below.
 | `plugins install <name>` | Download and install the latest version of a plugin |
 | `plugins update [name]` | Update one or all installed plugins to their latest version |
 | `plugins delete <name>` | Delete an installed plugin |
+| `plugins reinstall <name>` | Remove the local plugin and install the latest from the remote repository |
 | `source <file>` / `. <file>` | Execute a script in the current shell context (respects `#` comments and blank lines) |
 | `style list` | Show current style/colour settings |
 | `style set <key> <r> <g> <b>` | Set a prompt colour (RGB 0–255) |
@@ -239,6 +241,13 @@ ls | grep .v | wc -l
 echo "hello" > file.txt
 echo "world" >> file.txt
 ```
+
+**Merging stderr into stdout (`2>&1`)** – for external commands, when the command’s stdout is captured (pipe, `>`, `>>`, or `<`), the token `2>&1` includes stderr in that capture. Typical use:
+```
+some_cmd > log.txt 2>&1
+some_cmd 2>&1 | grep -i error
+```
+Captured stderr is concatenated after stdout (not byte-interleaved), which matches common logging use cases.
 
 **Input redirection** – feed a file into a command's stdin with `<`:
 ```
@@ -455,6 +464,7 @@ plugins search  <query>           – search remote plugins by name or descripti
 plugins install <name>            – download and install the latest version
 plugins update  [name]            – update one or all plugins to their latest version
 plugins delete  <name>            – delete a locally installed plugin
+plugins reinstall <name>          – remove local copy and install latest from remote
 ```
 
 Plugins are sourced from the official repository at
@@ -462,6 +472,8 @@ https://github.com/vlshcc/plugins. Each plugin has a `DESC` metadata file
 with its name, author, and description — used by `plugins search`. No
 external tooling is required; `install` downloads source directly. After
 installing a plugin, run `plugins reload` to compile and activate it.
+`plugins reinstall` removes the local copy, installs the latest from remote,
+and reloads plugins in one step.
 
 #### Example plugin (`examples/hello_plugin.v`)
 
@@ -643,7 +655,7 @@ The status bar at the top shows `vlsh mux` on the left and the live pane count o
 
 **`mux`** – `enter(status_providers []string)` is the public entry point; internally uses `Mux`, `Pane`, `LayoutNode`, `InputHandler`
 
-**`plugins`** – `load() []Plugin`, `installed_list() []InstalledPlugin`, `available() []string`, `dispatch(…) bool`, `completions(loaded, input) []string`, `run_pre_hooks`, `run_post_hooks`, `run_output_hooks(loaded, cmdline, exit_code, output)`, `prompt_segments(loaded) string`, `mux_status_binaries(loaded) []string`, `enable(name)`, `disable(name)`, `enable_all()`, `disable_all()`, `remote_plugin_names() ![]string`, `remote_versions(name) ![]string`, `latest_remote_version(name) !string`, `fetch_desc(name) !PluginDesc`, `install(name) !string`, `update_plugin(name) !string`, `delete_plugin(name) !`, `search_remote(query) ![]PluginDesc`
+**`plugins`** – `load() []Plugin`, `installed_list() []InstalledPlugin`, `available() []string`, `dispatch(…) bool`, `completions(loaded, input) []string`, `run_pre_hooks`, `run_post_hooks`, `run_output_hooks(loaded, cmdline, exit_code, output)`, `prompt_segments(loaded) string`, `mux_status_binaries(loaded) []string`, `enable(name)`, `disable(name)`, `enable_all()`, `disable_all()`, `remote_plugin_names() ![]string`, `remote_versions(name) ![]string`, `latest_remote_version(name) !string`, `fetch_desc(name) !PluginDesc`, `install(name) !string`, `update_plugin(name) !string`, `delete_plugin(name) !`, `reinstall_plugin(name) !string`, `search_remote(query) ![]PluginDesc`
 
 
 ## DISCLAIMER

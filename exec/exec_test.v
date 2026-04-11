@@ -132,46 +132,52 @@ fn test_expand_tilde_empty_string() {
 // ---------------------------------------------------------------------------
 
 fn test_parse_redirect_no_redirect() {
-	args, file, app, stdin_file := parse_redirect(['-l', '-a'])
+	args, file, app, stdin_file, merge := parse_redirect(['-l', '-a'])
 	assert args       == ['-l', '-a']
 	assert file       == ''
 	assert app        == false
 	assert stdin_file == ''
+	assert merge      == false
 }
 
 fn test_parse_redirect_truncate() {
-	args, file, app, stdin_file := parse_redirect(['echo', 'hello', '>', '/tmp/out.txt'])
+	args, file, app, stdin_file, merge := parse_redirect(['echo', 'hello', '>', '/tmp/out.txt'])
 	assert args       == ['echo', 'hello']
 	assert file       == '/tmp/out.txt'
 	assert app        == false
 	assert stdin_file == ''
+	assert merge      == false
 }
 
 fn test_parse_redirect_append() {
-	args, file, app, stdin_file := parse_redirect(['echo', 'hello', '>>', '/tmp/out.txt'])
+	args, file, app, stdin_file, merge := parse_redirect(['echo', 'hello', '>>', '/tmp/out.txt'])
 	assert args       == ['echo', 'hello']
 	assert file       == '/tmp/out.txt'
 	assert app        == true
 	assert stdin_file == ''
+	assert merge      == false
 }
 
 fn test_parse_redirect_strips_only_redirect_tokens() {
-	args, file, _, _ := parse_redirect(['ls', '-la', '>', '/tmp/ls.txt'])
+	args, file, _, _, merge := parse_redirect(['ls', '-la', '>', '/tmp/ls.txt'])
 	assert args == ['ls', '-la']
 	assert file == '/tmp/ls.txt'
+	assert merge == false
 }
 
 fn test_parse_redirect_empty_args() {
-	args, file, app, stdin_file := parse_redirect([])
+	args, file, app, stdin_file, merge := parse_redirect([])
 	assert args       == []string{}
 	assert file       == ''
 	assert app        == false
 	assert stdin_file == ''
+	assert merge      == false
 }
 
 fn test_parse_redirect_tilde_in_output_target() {
-	_, file, _, _ := parse_redirect(['echo', 'x', '>', '~/out.txt'])
+	_, file, _, _, merge := parse_redirect(['echo', 'x', '>', '~/out.txt'])
 	assert file == os.home_dir() + '/out.txt'
+	assert merge == false
 }
 
 // ---------------------------------------------------------------------------
@@ -179,43 +185,67 @@ fn test_parse_redirect_tilde_in_output_target() {
 // ---------------------------------------------------------------------------
 
 fn test_parse_redirect_stdin_file() {
-	args, file, app, stdin_file := parse_redirect(['cat', '<', '/tmp/in.txt'])
+	args, file, app, stdin_file, merge := parse_redirect(['cat', '<', '/tmp/in.txt'])
 	assert args       == ['cat']
 	assert file       == ''
 	assert app        == false
 	assert stdin_file == '/tmp/in.txt'
+	assert merge      == false
 }
 
 fn test_parse_redirect_stdin_tilde_expanded() {
-	_, _, _, stdin_file := parse_redirect(['cat', '<', '~/input.txt'])
+	_, _, _, stdin_file, merge := parse_redirect(['cat', '<', '~/input.txt'])
 	assert stdin_file == os.home_dir() + '/input.txt'
+	assert merge == false
 }
 
 fn test_parse_redirect_stdin_and_stdout_together() {
-	args, file, app, stdin_file := parse_redirect(['cmd', '<', '/tmp/in.txt', '>', '/tmp/out.txt'])
+	args, file, app, stdin_file, merge := parse_redirect(['cmd', '<', '/tmp/in.txt', '>', '/tmp/out.txt'])
 	assert args       == ['cmd']
 	assert file       == '/tmp/out.txt'
 	assert app        == false
 	assert stdin_file == '/tmp/in.txt'
+	assert merge      == false
 }
 
 fn test_parse_redirect_stdin_and_append_together() {
-	args, file, app, stdin_file := parse_redirect(['cmd', '<', '/tmp/in.txt', '>>', '/tmp/out.txt'])
+	args, file, app, stdin_file, merge := parse_redirect(['cmd', '<', '/tmp/in.txt', '>>', '/tmp/out.txt'])
 	assert args       == ['cmd']
 	assert file       == '/tmp/out.txt'
 	assert app        == true
 	assert stdin_file == '/tmp/in.txt'
+	assert merge      == false
 }
 
 fn test_parse_redirect_no_stdin_file_when_absent() {
-	_, _, _, stdin_file := parse_redirect(['-l', '-a'])
+	_, _, _, stdin_file, merge := parse_redirect(['-l', '-a'])
 	assert stdin_file == ''
+	assert merge == false
 }
 
 fn test_parse_redirect_stdin_strips_both_tokens() {
-	args, _, _, stdin_file := parse_redirect(['wc', '-l', '<', '/tmp/data.txt'])
+	args, _, _, stdin_file, merge := parse_redirect(['wc', '-l', '<', '/tmp/data.txt'])
 	assert args       == ['wc', '-l']
 	assert stdin_file == '/tmp/data.txt'
+	assert merge == false
+}
+
+fn test_parse_redirect_stderr_to_stdout_token() {
+	args, file, app, stdin_file, merge := parse_redirect(['sh', '-c', 'echo hi', '2>&1'])
+	assert args == ['sh', '-c', 'echo hi']
+	assert file == ''
+	assert app == false
+	assert stdin_file == ''
+	assert merge == true
+}
+
+fn test_parse_redirect_stderr_to_stdout_with_file() {
+	args, file, app, stdin_file, merge := parse_redirect(['cmd', '>', '/tmp/out', '2>&1'])
+	assert args == ['cmd']
+	assert file == '/tmp/out'
+	assert app == false
+	assert stdin_file == ''
+	assert merge == true
 }
 
 // ---------------------------------------------------------------------------
