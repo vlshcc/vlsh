@@ -11,7 +11,10 @@ Legend: **yes** = supported for typical use, **partial** = gaps/edge cases, **no
 | `!!` repeat last command | yes | Replaced with last **expanded** line from the interactive prompt (`utils.expand_history_notation`, `vlsh.v`) |
 | `!$` last word of last command | yes | Last token after the same rules as `parse_args` on the last expanded line |
 | `!n` history by index | yes | **1-based** index into `~/.vlsh_history` (last 5000 non-empty lines at startup, oldest first) plus each new typed line appended in order; `!1` is oldest in that list. Not bash’s event numbers. |
-| `!string`, `!?`, `!-1`, etc. | no | |
+| `!-n` (n ≥ 1) | yes | **n** commands back from the newest stored line (`!-1` = newest line in the list, same idea as `!!` when that line is the previous command) |
+| `!prefix` | yes | Newest history line whose text **starts with** `prefix` (non-empty word until whitespace); `!echo`, `!ls` |
+| `!?sub` | yes | Newest line **containing** substring `sub`; `!?foo?` or `!?foo` (word / `?`-delimited); see `parse_bang_question` |
+| `!string` (bash `!`) | partial | Only the `!prefix` form above, not bash’s full `!` grammar |
 
 ## Word splitting and quoting
 

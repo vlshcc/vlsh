@@ -424,6 +424,62 @@ fn last_word_last_command(line string) string {
 	return args[args.len - 1]
 }
 
+// history_find_prefix returns the index of the newest entry starting with prefix.
+fn history_find_prefix(entries []string, prefix string) !int {
+	if prefix.len == 0 {
+		return error('empty prefix after !')
+	}
+	for i := entries.len - 1; i >= 0; i-- {
+		if entries[i].starts_with(prefix) {
+			return i
+		}
+	}
+	return error('!${prefix}: no such event')
+}
+
+// history_find_contains returns the index of the newest entry containing sub.
+fn history_find_contains(entries []string, sub string) !int {
+	if sub.len == 0 {
+		return error('empty search string for !?')
+	}
+	for i := entries.len - 1; i >= 0; i-- {
+		if entries[i].contains(sub) {
+			return i
+		}
+	}
+	return error('!?${sub}: no such event')
+}
+
+// parse_bang_question parses !?foo? or !?foo (word until space/end). start is the index of '!'.
+fn parse_bang_question(input string, start int) !(string, int) {
+	if start + 2 > input.len || input[start + 1] != `?` {
+		return error('internal: expected !?')
+	}
+	j := start + 2
+	if j >= input.len {
+		return error('no search string for !?')
+	}
+	mut end := j
+	for end < input.len {
+		if input[end] == `?` {
+			sub := input[j..end]
+			if sub.len == 0 {
+				return error('empty substring for !?')
+			}
+			return sub, end + 1
+		}
+		if input[end] == ` ` || input[end] == `\t` || input[end] == `\n` || input[end] == `\r` {
+			break
+		}
+		end++
+	}
+	sub := input[j..end]
+	if sub.len == 0 {
+		return error('no search string for !?')
+	}
+	return sub, end
+}
+
 // load_history_entries_from_file returns ~/.vlsh_history lines (oldest first),
 // trimmed to the last 5000 non-empty lines to match append_history.
 pub fn load_history_entries_from_file() []string {
@@ -437,8 +493,7 @@ pub fn load_history_entries_from_file() []string {
 }
 
 // expand_history_notation applies bash-style history expansion on the raw line
-// before parse_args: `!!` → last expanded command, `!$` → last word of last
-// command, `!n` → nth history entry (1-based, from session file + new lines).
+// before parse_args: `!!`, `!$`, `!-n`, `!?sub`, `!n` (positive), `!prefix`.
 // Not POSIX. Scan is UTF-8 safe for non-ASCII outside `!` sequences.
 pub fn expand_history_notation(input string, last string, history_entries []string) !string {
 	if !input.contains('!') {
@@ -469,6 +524,41 @@ pub fn expand_history_notation(input string, last string, history_entries []stri
 			segment_start = i
 			continue
 		}
+		if i + 1 < input.len && input[i] == `!` && input[i + 1] == `-` {
+			if i + 2 >= input.len || input[i + 2] < `0` || input[i + 2] > `9` {
+				return error('!-: invalid history event')
+			}
+			mut j := i + 2
+			for j < input.len && input[j] >= `0` && input[j] <= `9` {
+				j++
+			}
+			k := input[i + 2..j].int()
+			if k < 1 {
+				return error('!-${k}: invalid history event')
+			}
+			if k > history_entries.len {
+				return error('!-${k}: no such history event')
+			}
+			idx := history_entries.len - k
+			out.write_string(input[segment_start..i])
+			out.write_string(history_entries[idx])
+			i = j
+			segment_start = i
+			continue
+		}
+		if i + 1 < input.len && input[i] == `!` && input[i + 1] == `?` {
+			sub, new_i := parse_bang_question(input, i) or {
+				return err
+			}
+			idx := history_find_contains(history_entries, sub) or {
+				return err
+			}
+			out.write_string(input[segment_start..i])
+			out.write_string(history_entries[idx])
+			i = new_i
+			segment_start = i
+			continue
+		}
 		if i + 1 < input.len && input[i] == `!` && input[i + 1] >= `0` && input[i + 1] <= `9` {
 			mut j := i + 1
 			for j < input.len && input[j] >= `0` && input[j] <= `9` {
@@ -487,6 +577,28 @@ pub fn expand_history_notation(input string, last string, history_entries []stri
 			i = j
 			segment_start = i
 			continue
+		}
+		if i + 1 < input.len && input[i] == `!` {
+			next := input[i + 1]
+			if next != `!` && next != `$` && next != `?` && next != `-` && !(next >= `0` && next <= `9`) {
+				mut j := i + 1
+				for j < input.len && input[j] != ` ` && input[j] != `\t` && input[j] != `\n` && input[j] != `\r` {
+					j++
+				}
+				if j == i + 1 {
+					i += utf8_char_len_at(input, i)
+					continue
+				}
+				prefix := input[i + 1..j]
+				idx := history_find_prefix(history_entries, prefix) or {
+					return err
+				}
+				out.write_string(input[segment_start..i])
+				out.write_string(history_entries[idx])
+				i = j
+				segment_start = i
+				continue
+			}
 		}
 		i += utf8_char_len_at(input, i)
 	}

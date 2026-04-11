@@ -253,6 +253,49 @@ fn test_expand_history_notation_event_number_out_of_range() {
 	assert false
 }
 
+fn test_expand_history_notation_negative_offset() {
+	h := ['a', 'b', 'c']
+	assert expand_history_notation('x !-1 z', '', h)! == 'x c z'
+	assert expand_history_notation('!-2', '', h)! == 'b'
+	assert expand_history_notation('!-3', '', h)! == 'a'
+}
+
+fn test_expand_history_notation_negative_offset_invalid() {
+	expand_history_notation('!-0', '', ['a']) or {
+		assert err.msg().contains('invalid')
+		return
+	}
+	assert false
+}
+
+fn test_expand_history_notation_prefix() {
+	h := ['ls /tmp', 'echo hello', 'date']
+	assert expand_history_notation('!echo', '', h)! == 'echo hello'
+	assert expand_history_notation('!da', '', h)! == 'date'
+}
+
+fn test_expand_history_notation_prefix_missing() {
+	expand_history_notation('!zz', '', ['aa']) or {
+		assert err.msg().contains('no such')
+		return
+	}
+	assert false
+}
+
+fn test_expand_history_notation_contains() {
+	h := ['ls /tmp', 'echo hello there', 'date']
+	assert expand_history_notation('!?hello', '', h)! == 'echo hello there'
+	assert expand_history_notation('!?/tmp?', '', h)! == 'ls /tmp'
+}
+
+fn test_expand_history_notation_contains_missing() {
+	expand_history_notation('!?xyzzy', '', ['aa']) or {
+		assert err.msg().contains('no such') || err.msg().contains('!?')
+		return
+	}
+	assert false
+}
+
 fn test_parse_args_ifs_colon_empty_field() {
 	had, old := save_ifs()
 	os.setenv('IFS', ':', true)

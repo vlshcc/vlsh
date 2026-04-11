@@ -16,8 +16,9 @@
   Documented in `docs/posix-inventory.md`.
 - **History expansion** (interactive) — `utils.expand_history_notation()` in
   `vlsh.v`: `!!` → last expanded line, `!$` → last word of that line (via
-  `parse_args`), `!n` → nth line from `load_history_entries_from_file()` plus
-  in-session appends (1-based, oldest in file = `!1`). README, built-in `help`,
+  `parse_args`), `!n` → nth line (1-based, oldest in file = `!1`), `!-n` → n
+  back from newest, `!prefix` → newest line starting with prefix, `!?sub` →
+  newest line containing sub (`parse_bang_question`). README, built-in `help`,
   and `docs/posix-inventory.md` updated; tests in `utils/utils_test.v`.
 
 **Makefile: `install`, `dist`, `dist-install`**

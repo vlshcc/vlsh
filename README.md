@@ -10,9 +10,8 @@ to read, modify, and extend.
 - **Glob expansion** — `*.v`, `./*.deb`, `~/docs/**` expanded before execution
 - **Tilde and parameter expansion** — `~/path`, `$VAR`, `${var:-word}`, `${#var}`, `${var#pat}` / `${var%pat}` (glob `*`/`?` in `pat`), nested `${…}`, `VAR=val cmd`; unquoted words split on session **`IFS`** (default space/tab/newline) (see [docs/posix-inventory.md](docs/posix-inventory.md))
 - **Command history** — up/down arrow browsing and `Ctrl+R` incremental search;
-  shared across all sessions (last 5000 entries in `~/.vlsh_history`); bash-style
-  **`!!`**, **`!$`** (last word of previous command), **`!n`** (1-based history
-  line index; see docs), interactive prompt only
+  shared across all sessions (last 5000 entries in `~/.vlsh_history`);   bash-style **`!!`**, **`!$`**, **`!n`**, **`!-n`**, **`!prefix`**, **`!?sub`**
+  (see docs), interactive prompt only
 - **Tab completion** — files and directories; the first word also completes
   command names found in `$PATH`; after `cd` with a space, only directories are
   suggested; plugins can register custom completions (e.g. SSH hostname completion)
@@ -323,6 +322,19 @@ parsing, at the interactive prompt only:
   loaded from `~/.vlsh_history` (last 5000 non-empty lines, **oldest** = `!1`)
   plus each new line you type in this session, in order. This is **not** the same
   numbering as bash’s `history` event IDs.
+- **`!-n`** (n ≥ 1) — **n** lines back from the **newest** stored entry (`!-1` is
+  the most recent line in the list — usually the same as the last command you
+  typed, analogous to `!!` when that entry is the previous command).
+- **`!prefix`** — the **newest** history line that **starts with** `prefix`
+  (one non-empty word, no leading digit — those are `!n`). Example: `!echo`
+  after `echo hello` → `echo hello`.
+- **`!?sub`** — the **newest** line **containing** `sub`. Use `!?foo?` to end the
+  substring at the next `?`, or `!?foo` to use a single word (`foo`).
+
+**Note:** `!!` substitutes the **last expanded** command line, while `!-1` (and
+`!n`) refer to **stored history text** (what was typed). After you run `!!`,
+history records the characters `!!`, not the expanded command — so `!-1` can
+differ from `!!` in that case.
 
 If expansion fails (e.g. `!99` out of range), vlsh prints an error and skips the
 line. Lines from scripts (`source`, `.vlshrc`) do not append to this list or
