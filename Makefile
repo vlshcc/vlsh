@@ -1,8 +1,10 @@
 # vlsh — V project: use the V compiler from PATH (override with `make V=/path/to/v`).
 V ?= v
 PREFIX ?= /usr/local
+# Default for `make fuzz` (override: make fuzz FUZZ_ITER=200000).
+FUZZ_ITER ?= 50000
 
-.PHONY: all build test check clean install dist dist-build dist-install help
+.PHONY: all build test check fuzz clean install dist dist-build dist-install help
 
 all: build
 
@@ -11,6 +13,7 @@ help:
 	@echo ""
 	@echo "  make, make build     Compile the shell (v . in the project root)."
 	@echo "  make test, make check   Run the test suite (v test .)."
+	@echo "  make fuzz               Run tools/fuzz_shell.v (random input stress; FUZZ_ITER=$(FUZZ_ITER))."
 	@echo "  make clean           Remove the vlsh binary from the build tree."
 	@echo "  make install         Install vlsh to \$$(DESTDIR)\$$(PREFIX)/bin (default PREFIX=$(PREFIX))."
 	@echo "                       Depends on build; use sudo if needed (sudo make install)."
@@ -19,7 +22,7 @@ help:
 	@echo "  make dist-install    Install the newest matching package/binary from builds/ for this OS"
 	@echo "                       (pkg/dist.sh install; sudo when not root)."
 	@echo ""
-	@echo "Variables:  V=/path/to/v   PREFIX=$(PREFIX)   DESTDIR="
+	@echo "Variables:  V=/path/to/v   PREFIX=$(PREFIX)   DESTDIR=   FUZZ_ITER=$(FUZZ_ITER)   FUZZ_SEED="
 	@echo "More detail: README.md (Build and run, Distribution builds)."
 	@echo ""
 
@@ -31,8 +34,11 @@ test: check
 check:
 	$(V) test .
 
+fuzz:
+	FUZZ_ITER=$(FUZZ_ITER) FUZZ_SEED=$(FUZZ_SEED) $(V) run tools/fuzz_shell.v
+
 clean:
-	rm -f vlsh
+	rm -f vlsh tools/fuzz_shell
 
 # Install the locally built binary (run with sufficient privileges, e.g. sudo make install).
 install: build

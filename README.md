@@ -88,7 +88,7 @@ v .
 ./vlsh
 ```
 
-From the same directory, `make help` summarizes Makefile targets; `make test` runs the test suite (`v test .`), `make build` compiles (`v .`), and `make clean` removes the `vlsh` binary. Override the compiler with `make V=/path/to/v`.
+From the same directory, `make help` summarizes Makefile targets; `make test` runs the test suite (`v test .`), `make build` compiles (`v .`), and `make clean` removes the `vlsh` binary. **`make fuzz`** runs `tools/fuzz_shell.v` to stress parsers with random input (`FUZZ_ITER`, optional decimal `FUZZ_SEED` as a full integer string). Random lines can trigger stderr from parameter expansion diagnostics; use `2>/dev/null` if you want a quiet run. Override the compiler with `make V=/path/to/v`.
 
 `make install` installs the built `vlsh` into `$(PREFIX)/bin` (default `/usr/local/bin`). Use `sudo make install`, or set `DESTDIR` / `PREFIX` for a staged install.
 

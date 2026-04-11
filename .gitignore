@@ -1,5 +1,6 @@
 # Compiled binary
 vlsh
+tools/fuzz_shell
 
 # Build artifacts
 builds/

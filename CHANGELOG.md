@@ -2,6 +2,13 @@
 
 ### Added
 
+**Fuzz harness (`tools/fuzz_shell.v`)**
+- Random-input stress of `parse_args`, `expand_vars`, `split_commands`,
+  `expand_history_notation`, and `is_env_assign`. Run `make fuzz` (see `Makefile`
+  for `FUZZ_ITER`, `FUZZ_SEED`) or `v run tools/fuzz_shell.v`. `FUZZ_SEED` is a
+  decimal string parsed as `u64` (not truncated to 32-bit). Documented under
+  build instructions in `README.md`.
+
 **POSIX subset (incremental)**
 
 - `docs/posix-inventory.md` — tracks supported vs missing POSIX shell features (word
