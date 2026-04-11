@@ -132,6 +132,7 @@ fn main() {
 	load_history(mut r)
 	os.setenv('?', '0', true)
 	source_rc(mut loaded_plugins)
+	mut history_entries := utils.load_history_entries_from_file()
 	mut last_executed_command := ''
 	for {
 		println(pre_prompt())
@@ -150,11 +151,15 @@ fn main() {
 		trimmed := cmd.str().trim_space()
 		mut expanded := trimmed
 		if trimmed.len > 0 {
-			expanded = utils.expand_history_bangs(trimmed, last_executed_command) or {
+			expanded = utils.expand_history_notation(trimmed, last_executed_command, history_entries) or {
 				eprintln('vlsh: ${err.msg()}')
 				continue
 			}
 			append_history(trimmed)
+			history_entries << trimmed
+			if history_entries.len > 5000 {
+				history_entries = history_entries[1..]
+			}
 		}
 		plugins.run_pre_hooks(loaded_plugins, trimmed)
 		exit_code := main_loop(expanded, mut loaded_plugins)

@@ -396,17 +396,108 @@ pub fn parse_args(input string) []string {
 	return args
 }
 
-// expand_history_bangs replaces every `!!` with last (the last expanded command
-// line executed from the interactive prompt). Bash-style; not POSIX. Fails when
-// the line contains `!!` but last is empty.
-pub fn expand_history_bangs(input string, last string) !string {
-	if !input.contains('!!') {
+fn utf8_char_len_at(s string, i int) int {
+	if i >= s.len {
+		return 0
+	}
+	b := s[i]
+	if b < 0x80 {
+		return 1
+	}
+	if (b & 0xe0) == 0xc0 {
+		return 2
+	}
+	if (b & 0xf0) == 0xe0 {
+		return 3
+	}
+	if (b & 0xf8) == 0xf0 {
+		return 4
+	}
+	return 1
+}
+
+fn last_word_last_command(line string) string {
+	args := parse_args(line)
+	if args.len == 0 {
+		return ''
+	}
+	return args[args.len - 1]
+}
+
+// load_history_entries_from_file returns ~/.vlsh_history lines (oldest first),
+// trimmed to the last 5000 non-empty lines to match append_history.
+pub fn load_history_entries_from_file() []string {
+	hfile := os.home_dir() + '/.vlsh_history'
+	content := os.read_file(hfile) or { return []string{} }
+	lines := content.split('\n').filter(it.len > 0)
+	if lines.len > 5000 {
+		return lines[lines.len - 5000..].clone()
+	}
+	return lines.clone()
+}
+
+// expand_history_notation applies bash-style history expansion on the raw line
+// before parse_args: `!!` → last expanded command, `!$` → last word of last
+// command, `!n` → nth history entry (1-based, from session file + new lines).
+// Not POSIX. Scan is UTF-8 safe for non-ASCII outside `!` sequences.
+pub fn expand_history_notation(input string, last string, history_entries []string) !string {
+	if !input.contains('!') {
 		return input
 	}
-	if last == '' {
-		return error('no previous command for !!')
+	mut out := strings.new_builder(input.len * 2)
+	mut segment_start := 0
+	mut i := 0
+	for i < input.len {
+		if i + 1 < input.len && input[i] == `!` && input[i + 1] == `!` {
+			if last == '' {
+				return error('no previous command for !!')
+			}
+			out.write_string(input[segment_start..i])
+			out.write_string(last)
+			i += 2
+			segment_start = i
+			continue
+		}
+		if i + 1 < input.len && input[i] == `!` && input[i + 1] == `$` {
+			if last == '' {
+				return error('no previous command for !$')
+			}
+			lw := last_word_last_command(last)
+			out.write_string(input[segment_start..i])
+			out.write_string(lw)
+			i += 2
+			segment_start = i
+			continue
+		}
+		if i + 1 < input.len && input[i] == `!` && input[i + 1] >= `0` && input[i + 1] <= `9` {
+			mut j := i + 1
+			for j < input.len && input[j] >= `0` && input[j] <= `9` {
+				j++
+			}
+			num_str := input[i + 1..j]
+			n := num_str.int()
+			if n < 1 {
+				return error('!${num_str}: invalid history event')
+			}
+			if n > history_entries.len {
+				return error('!${n}: no such history event')
+			}
+			out.write_string(input[segment_start..i])
+			out.write_string(history_entries[n - 1])
+			i = j
+			segment_start = i
+			continue
+		}
+		i += utf8_char_len_at(input, i)
 	}
-	return input.replace('!!', last)
+	out.write_string(input[segment_start..])
+	return out.str()
+}
+
+// expand_history_bangs replaces every `!!` with last. Same as expand_history_notation
+// with an empty history list (`!n` always fails if present).
+pub fn expand_history_bangs(input string, last string) !string {
+	return expand_history_notation(input, last, []string{})
 }
 
 // glob_expand returns the filesystem matches for tok when it is unquoted and

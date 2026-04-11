@@ -50,8 +50,10 @@ pub fn help(version string, args []string) {
 	println('${term.bold('Word splitting')} — Unquoted words are split on \$IFS (default space,')
 	println('  tab, newline when IFS is unset). Custom non-whitespace IFS can yield empty')
 	println('  fields between delimiters.')
-	println('${term.bold('History repeat')} — `!!` is replaced by the last command line')
-	println('  executed at this prompt (after expansion). Bash-style; not POSIX.')
+	println('${term.bold('History expansion')} — Before parsing: `!!` = last expanded')
+	println('  command line; `!$` = last word of that line; `!n` = nth history line')
+	println('  (1-based: ~/.vlsh_history tail + this session; see README). Bash-style;')
+	println('  not POSIX.')
 	println('  Full POSIX shell is not implemented; see README (POSIX compatibility)')
 	println('  and docs/posix-inventory.md for scope and gaps.')
 	println('')
@@ -111,8 +113,8 @@ fn help_sub(cmd string) {
 			println('  ${term.bold('help')} <cmd>    Show detailed help for a specific command.')
 			println('')
 			println('The overview also summarizes tab completion, parameter expansion,')
-			println('word splitting (IFS), history repeat (`!!`), and points to README /')
-			println('docs/posix-inventory.md for POSIX subset details.')
+			println('word splitting (IFS), history expansion (`!!`, `!$`, `!n`), and')
+			println('points to README / docs/posix-inventory.md for POSIX subset details.')
 		}
 		'ls' {
 			println('${term.bold('ls')} - List directory contents')

@@ -14,9 +14,11 @@
 - `parse_args` — token boundaries respect `IFS` (default space/tab/newline when
   unset; non-whitespace `IFS` can yield empty fields between delimiters).
   Documented in `docs/posix-inventory.md`.
-- **`!!` history repeat** (interactive) — `utils.expand_history_bangs()` replaces
-  every `!!` with the last expanded command line from the prompt; `!$` / `!n`
-  not implemented. README, built-in `help`, and `docs/posix-inventory.md` updated.
+- **History expansion** (interactive) — `utils.expand_history_notation()` in
+  `vlsh.v`: `!!` → last expanded line, `!$` → last word of that line (via
+  `parse_args`), `!n` → nth line from `load_history_entries_from_file()` plus
+  in-session appends (1-based, oldest in file = `!1`). README, built-in `help`,
+  and `docs/posix-inventory.md` updated; tests in `utils/utils_test.v`.
 
 **Makefile: `install`, `dist`, `dist-install`**
 - `make install` — install built `vlsh` to `$(PREFIX)/bin` (default `/usr/local/bin`).

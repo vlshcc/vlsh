@@ -8,7 +8,10 @@ Legend: **yes** = supported for typical use, **partial** = gaps/edge cases, **no
 
 | Feature | Status | Notes |
 |--------|--------|--------|
-| `!!` repeat last command | yes | Every `!!` in the line is replaced with the last **expanded** interactive command; `utils.expand_history_bangs` in `vlsh.v` main loop; `!$`, `!n`, etc. **no** |
+| `!!` repeat last command | yes | Replaced with last **expanded** line from the interactive prompt (`utils.expand_history_notation`, `vlsh.v`) |
+| `!$` last word of last command | yes | Last token after the same rules as `parse_args` on the last expanded line |
+| `!n` history by index | yes | **1-based** index into `~/.vlsh_history` (last 5000 non-empty lines at startup, oldest first) plus each new typed line appended in order; `!1` is oldest in that list. Not bash’s event numbers. |
+| `!string`, `!?`, `!-1`, etc. | no | |
 
 ## Word splitting and quoting
 

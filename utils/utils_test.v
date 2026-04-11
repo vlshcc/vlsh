@@ -218,6 +218,41 @@ fn test_expand_history_bangs_errors_when_no_last() {
 	assert false
 }
 
+fn test_expand_history_notation_bang_dollar_last_word() {
+	last := 'ls -la /tmp'
+	assert expand_history_notation('cp !$ /other', last, [])! == 'cp /tmp /other'
+}
+
+fn test_expand_history_notation_bang_dollar_errors_without_last() {
+	expand_history_notation('echo !$', '', []) or {
+		assert err.msg().contains('!\$') || err.msg().contains('previous')
+		return
+	}
+	assert false
+}
+
+fn test_expand_history_notation_event_number() {
+	h := ['echo a', 'echo b', 'echo c']
+	assert expand_history_notation('!2', '', h)! == 'echo b'
+	assert expand_history_notation('x !1 z', '', h)! == 'x echo a z'
+}
+
+fn test_expand_history_notation_event_number_invalid() {
+	expand_history_notation('!0', '', ['a']) or {
+		assert err.msg().contains('invalid')
+		return
+	}
+	assert false
+}
+
+fn test_expand_history_notation_event_number_out_of_range() {
+	expand_history_notation('!9', '', ['only']) or {
+		assert err.msg().contains('no such')
+		return
+	}
+	assert false
+}
+
 fn test_parse_args_ifs_colon_empty_field() {
 	had, old := save_ifs()
 	os.setenv('IFS', ':', true)
