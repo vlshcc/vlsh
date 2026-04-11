@@ -10,7 +10,7 @@ import plugins
 import shellops { builtin_redirect, split_commands, write_redirect }
 import utils
 
-const version = '1.1.7.1'
+const version = '1.2.0'
 
 fn pre_prompt() string {
 	mut current_dir := term.colorize(term.bold, '${os.getwd()} ')

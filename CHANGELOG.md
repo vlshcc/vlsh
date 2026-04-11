@@ -1,4 +1,30 @@
-## 2026-04-11
+## 2026-04-11 — version 1.2.0
+
+### Release summary (since [v1.1.7.1](https://github.com/vlshcc/vlsh/releases/tag/v1.1.7.1))
+
+This release broadens POSIX-like shell behaviour, improves interactive editing and packaging, and adds a small fuzz harness for parser robustness.
+
+**Shell language & parsing**
+- Documented POSIX subset inventory (`docs/posix-inventory.md`).
+- Brace parameter expansion: `${name}`, `${#name}`, `:-`, `:=`, `:+`, `:?`, `#` / `##` / `%` / `%%` (glob `*` / `?` in patterns), nested `${…}`.
+- Word splitting respects session `IFS` (default space/tab/newline; custom delimiters; empty fields when `IFS` is non-whitespace-only).
+- Interactive **bash-style history expansion**: `!!`, `!$`, `!n`, `!-n`, `!prefix`, `!?sub` (see README for `!!` vs `!-1`).
+
+**Execution & UX**
+- First-word tab completion merges filesystem matches with **command names from `$PATH`**.
+- External commands: `2>&1` merges stderr into captured stdout for pipes and redirects (common bash pattern).
+- **`plugins reinstall <name>`** — remove local tree and reinstall latest from the remote repo.
+
+**Packaging & build**
+- **`make install`**, **`make dist`** / **`dist-install`**; **`pkg/dist.sh`** orchestrates artifacts under `builds/` with timestamped backups.
+- **`pkg/build.sh`**: FreeBSD sysroot pre-clone for cross-builds; DragonFly ISO extraction via `bsdtar` or GNU `tar`; NetBSD/OpenBSD native stubs.
+
+**Tooling**
+- **`tools/fuzz_shell.v`** and **`make fuzz`** — random-input stress of parsers (`FUZZ_ITER`, decimal `FUZZ_SEED` as `u64`).
+
+**Bug fixes**
+- Plugin compilation uses **runtime `v` lookup** (not `@VEXE`); startup does not block on plugin compile; FreeBSD startup/plugin fixes.
+- **`cfg.extract_style()`** default RGB map assignment; DragonFly `dist` without `bsdtar`.
 
 ### Added
 
@@ -94,6 +120,11 @@
 - Default RGB entries for missing style keys used `<<` on a new map key, which
   did not assign the slice; defaults were never applied (`cfg_test` failed).
   Replaced with `loc_cfg.style[k] = v`.
+
+### Version bumps
+
+- Version bumped to **`1.2.0`** in `vlsh.v`, `v.mod`, `README.md` (release URLs and
+  install examples), and FreeBSD/DragonFly port `DISTVERSION` / `distinfo` tarball names.
 
 ---
 
