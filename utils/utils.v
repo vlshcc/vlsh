@@ -8,6 +8,132 @@ import cfg
 
 const debug_mode = os.getenv('VLSHDEBUG')
 
+// brace_closing_index returns the index *after* the `}` that matches `{` at open_brace_idx.
+fn brace_closing_index(s string, open_brace_idx int) int {
+	mut depth := 1
+	mut j := open_brace_idx + 1
+	for j < s.len && depth > 0 {
+		if s[j] == `{` {
+			depth++
+		} else if s[j] == `}` {
+			depth--
+		}
+		j++
+	}
+	return j
+}
+
+fn is_param_name(name string) bool {
+	if name.len == 0 {
+		return false
+	}
+	f := name[0]
+	if !f.is_letter() && f != `_` {
+		return false
+	}
+	for k := 1; k < name.len; k++ {
+		ch := name[k]
+		if !ch.is_letter() && !ch.is_digit() && ch != `_` {
+			return false
+		}
+	}
+	return true
+}
+
+// expand_brace_param evaluates the inside of ${...} (POSIX-style parameter expansion subset).
+fn expand_brace_param(inner string) string {
+	if inner.len == 0 {
+		return ''
+	}
+	// ${#name} — length of expansion (in characters)
+	if inner[0] == `#` {
+		nm := inner[1..]
+		if nm == '0' {
+			arg0 := if os.args.len > 0 { os.args[0] } else { 'vlsh' }
+			return arg0.len.str()
+		}
+		if nm.len == 1 && (nm[0] == `?` || nm[0] == `!` || nm[0] == `#`) {
+			return os.getenv(nm).len.str()
+		}
+		if nm.len == 1 && nm[0] >= `1` && nm[0] <= `9` {
+			return os.getenv(nm).len.str()
+		}
+		if is_param_name(nm) {
+			return os.getenv(nm).len.str()
+		}
+		return ''
+	}
+	mut name_end := 0
+	for name_end < inner.len {
+		ch := inner[name_end]
+		if ch.is_letter() || ch.is_digit() || ch == `_` {
+			name_end++
+		} else {
+			break
+		}
+	}
+	if name_end == 0 {
+		// Single special char: $? $! $#
+		if inner.len == 1 {
+			c := inner[0]
+			if c == `?` || c == `!` || c == `#` {
+				return os.getenv(inner)
+			}
+			if c >= `1` && c <= `9` {
+				return os.getenv(inner)
+			}
+			if c == `0` {
+				return if os.args.len > 0 { os.args[0] } else { 'vlsh' }
+			}
+		}
+		return ''
+	}
+	name := inner[..name_end]
+	rest := inner[name_end..]
+	if rest == '' {
+		if name == '0' {
+			return if os.args.len > 0 { os.args[0] } else { 'vlsh' }
+		}
+		return os.getenv(name)
+	}
+	if rest.starts_with(':-') {
+		word := expand_vars(rest[2..])
+		val := os.getenv(name)
+		if val == '' {
+			return word
+		}
+		return val
+	}
+	if rest.starts_with(':=') {
+		word := expand_vars(rest[2..])
+		val := os.getenv(name)
+		if val == '' {
+			os.setenv(name, word, true)
+			return word
+		}
+		return val
+	}
+	if rest.starts_with(':+') {
+		word := expand_vars(rest[2..])
+		val := os.getenv(name)
+		if val == '' {
+			return ''
+		}
+		return word
+	}
+	if rest.starts_with(':?') {
+		word := expand_vars(rest[2..])
+		val := os.getenv(name)
+		if val == '' {
+			msg := if word != '' { '${name}: ${word}' } else { '${name}: parameter null or unset' }
+			eprintln(msg)
+			return ''
+		}
+		return val
+	}
+	return ''
+}
+
 pub fn ok(input string) {
 	println(term.ok_message('OKY| ${input}'))
 }
@@ -22,6 +148,7 @@ pub fn warn(input string) {
 
 // expand_vars replaces $VAR references in s with their values.
 // Recognised forms (in order of precedence):
+//   ${parameter…}       — brace parameter expansion (see expand_brace_param)
 //   $?  $!  $#          — single-char special parameters (looked up in env)
 //   $$                  — current process ID
 //   $0                  — shell binary name (os.args[0])
@@ -36,6 +163,18 @@ pub fn expand_vars(s string) string {
 	mut i := 0
 	for i < s.len {
 		if s[i] == `$` && i + 1 < s.len {
+			if s[i + 1] == `{` {
+				close := brace_closing_index(s, i + 1)
+				if close <= i + 2 {
+					result.write_u8(s[i])
+					i++
+					continue
+				}
+				inner := s[i + 2..close - 1]
+				result.write_string(expand_brace_param(inner))
+				i = close
+				continue
+			}
 			next := s[i + 1]
 			if next == `?` || next == `!` || next == `#` {
 				result.write_string(os.getenv(s[i + 1..i + 2]))

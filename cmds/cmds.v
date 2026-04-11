@@ -42,6 +42,12 @@ pub fn help(version string, args []string) {
 	println('word also completes command names from \$PATH. After ${term.bold('cd')} with a')
 	println('space, only directory names are suggested. Plugins may add more completions.')
 	println('')
+	println('${term.bold('Parameter expansion')} — In unquoted (or double-quoted) words:')
+	println('  \$VAR  \$\$  \$0  \$?  \${name}  \${#name}  \${var:-word}  \${var:=word}')
+	println('  \${var:+word}  \${var:?word}  (nested \${...} is supported).')
+	println('  Full POSIX shell is not implemented; see README (POSIX compatibility)')
+	println('  and docs/posix-inventory.md for scope and gaps.')
+	println('')
 }
 
 fn help_sub(cmd string) {
@@ -74,9 +80,14 @@ fn help_sub(cmd string) {
 			println('  ${term.bold('echo')} [args...] > file       Write output to file (truncate).')
 			println('  ${term.bold('echo')} [args...] >> file      Append output to file.')
 			println('')
-			println('Variable expansion:')
+			println('Variable and parameter expansion (same rules as other commands):')
 			println('  \$0          The shell name (vlsh).')
 			println('  \$VAR        Expands to the value of environment variable VAR.')
+			println('  \${name}     Value of name; \${#name} is the string length.')
+			println('  \${var:-w}   Default w if var is unset or empty.')
+			println('  \${var:=w}   Same, and assigns w to var when unset or empty.')
+			println('  \${var:+w}   w if var is set and non-empty; otherwise empty.')
+			println('  \${var:?w}   Error message to stderr if unset or empty (see README).')
 		}
 		'exit' {
 			println('${term.bold('exit')} - Exit the shell')
@@ -89,8 +100,8 @@ fn help_sub(cmd string) {
 			println('  ${term.bold('help')}          Show overview of all built-in commands.')
 			println('  ${term.bold('help')} <cmd>    Show detailed help for a specific command.')
 			println('')
-			println('The overview also summarizes tab completion: files, directories,')
-			println('and command names from \$PATH (after cd with a space, directories only).')
+			println('The overview also summarizes tab completion, parameter expansion,')
+			println('and points to README / docs/posix-inventory.md for POSIX subset details.')
 		}
 		'ls' {
 			println('${term.bold('ls')} - List directory contents')

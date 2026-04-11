@@ -68,6 +68,77 @@ fn test_expand_vars_dollar_at_end_of_string_kept_literal() {
 }
 
 // ---------------------------------------------------------------------------
+// expand_vars — POSIX-style ${parameter…} (subset)
+// ---------------------------------------------------------------------------
+
+fn test_expand_brace_simple_var() {
+	os.setenv('VLSH_BR1', 'ok', true)
+	assert expand_vars('$' + '{VLSH_BR1}') == 'ok'
+	os.unsetenv('VLSH_BR1')
+}
+
+fn test_expand_brace_var_zero() {
+	r := expand_vars('$' + '{0}')
+	assert r.len > 0
+}
+
+fn test_expand_brace_colon_minus_unset_uses_default() {
+	os.unsetenv('VLSH_BR2')
+	assert expand_vars('$' + '{VLSH_BR2:-fallback}') == 'fallback'
+}
+
+fn test_expand_brace_colon_minus_set_uses_value() {
+	os.setenv('VLSH_BR2', 'real', true)
+	assert expand_vars('$' + '{VLSH_BR2:-fallback}') == 'real'
+	os.unsetenv('VLSH_BR2')
+}
+
+fn test_expand_brace_colon_minus_empty_uses_default() {
+	os.setenv('VLSH_BR2', '', true)
+	assert expand_vars('$' + '{VLSH_BR2:-fallback}') == 'fallback'
+	os.unsetenv('VLSH_BR2')
+}
+
+fn test_expand_brace_colon_equal_assigns_when_unset() {
+	os.unsetenv('VLSH_BR3')
+	assert expand_vars('$' + '{VLSH_BR3:=assigned}') == 'assigned'
+	assert os.getenv('VLSH_BR3') == 'assigned'
+	os.unsetenv('VLSH_BR3')
+}
+
+fn test_expand_brace_colon_plus_unset_empty() {
+	os.unsetenv('VLSH_BR4')
+	assert expand_vars('$' + '{VLSH_BR4:+yes}') == ''
+}
+
+fn test_expand_brace_colon_plus_set_substitutes() {
+	os.setenv('VLSH_BR4', 'x', true)
+	assert expand_vars('$' + '{VLSH_BR4:+yes}') == 'yes'
+	os.unsetenv('VLSH_BR4')
+}
+
+fn test_expand_brace_hash_length() {
+	os.setenv('VLSH_BR5', 'abc', true)
+	assert expand_vars('$' + '{#VLSH_BR5}') == '3'
+	os.unsetenv('VLSH_BR5')
+}
+
+fn test_expand_brace_nested_colon_minus() {
+	os.unsetenv('VLSH_BR6')
+	os.unsetenv('VLSH_BR7')
+	os.setenv('VLSH_BR7', 'inner', true)
+	assert expand_vars('$' + '{VLSH_BR6:-' + '$' + '{VLSH_BR7:-none}}') == 'inner'
+	os.unsetenv('VLSH_BR7')
+}
+
+fn test_expand_brace_word_expands_inner_dollar() {
+	os.unsetenv('VLSH_BR8')
+	os.setenv('VLSH_BR9', 'path', true)
+	assert expand_vars('$' + '{VLSH_BR8:-/tmp/' + '$' + '{VLSH_BR9}}') == '/tmp/path'
+	os.unsetenv('VLSH_BR9')
+}
+
+// ---------------------------------------------------------------------------
 // parse_args
 // ---------------------------------------------------------------------------
 
@@ -103,14 +174,20 @@ fn test_parse_args_double_quoted_token() {
 }
 
 fn test_parse_args_single_quotes_suppress_double() {
-	// double-quote inside single-quoted string is literal
-	result := parse_args("echo '\"stay\"'")
+	// double-quote inside single-quoted string is literal (echo '"stay"')
+	mut cmd := 'echo '
+	cmd += "'"
+	cmd += '"'
+	cmd += 'stay'
+	cmd += '"'
+	cmd += "'"
+	result := parse_args(cmd)
 	assert result == ['echo', '"stay"']
 }
 
 fn test_parse_args_double_quotes_suppress_single() {
 	// single-quote inside double-quoted string is literal
-	result := parse_args('echo "it\'s fine"')
+	result := parse_args('echo "it' + "'" + 's fine"')
 	assert result == ['echo', "it's fine"]
 }
 

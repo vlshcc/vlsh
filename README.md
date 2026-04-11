@@ -8,7 +8,7 @@ to read, modify, and extend.
 
 - **Pipes, redirection, and command chaining** — `cmd1 | cmd2`, `> file`, `>> file`, `< file`, and `2>&1` (merge stderr into captured stdout when piping or redirecting); AND-chains (`&&`), OR-chains (`||`), and unconditional sequences (`;`)
 - **Glob expansion** — `*.v`, `./*.deb`, `~/docs/**` expanded before execution
-- **Tilde and environment-variable expansion** — `~/path`, `$VAR`, `VAR=val cmd`
+- **Tilde and parameter expansion** — `~/path`, `$VAR`, `${var:-word}`, `${#var}`, nested `${…}`, and `VAR=val cmd` (see [docs/posix-inventory.md](docs/posix-inventory.md))
 - **Command history** — up/down arrow browsing and `Ctrl+R` incremental search;
   shared across all sessions (last 5000 entries in `~/.vlsh_history`)
 - **Tab completion** — files and directories; the first word also completes
@@ -222,7 +222,7 @@ lines use the config syntax below.
 | `aliases add <name>=<cmd>` | Add or update an alias |
 | `aliases remove <name>` | Remove an alias |
 | `cd [dir]` | Change directory; `~` and `~/path` expand to `$HOME`; home if omitted; `cd -` returns to the previous directory |
-| `echo [args…]` | Print arguments; expands `$VAR` and `$0`; supports `>` / `>>` |
+| `echo [args…]` | Print arguments; same parameter expansion as other commands (`$VAR`, `${var:-word}`, `${#var}`, …); supports `>` / `>>` |
 | `exit [N]` | Exit the shell with optional status code (default 0) |
 | `export [NAME=value …]` | Set environment variables; with no args, lists all exported variables |
 | `help [cmd]` | Show command list, or detailed help for a specific command |
@@ -299,7 +299,7 @@ vi ~/.config/nvim/init.vim
 FIELD_LIST='used,avail' df -h --no-sync .
 ```
 
-**Variable expansion in echo** – `$VAR` expands to the environment variable value; `$0` expands to `vlsh`.
+**Parameter expansion** – Applied when parsing command words (including arguments to `echo` and other commands): simple `$VAR`, `$$`, `$?`, `$0`, and POSIX-style brace forms such as `${VAR}`, `${#VAR}` (length), `${var:-word}` (default if unset or empty), `${var:=word}` (assign default), `${var:+word}` (alternate if set), `${var:?word}` (diagnostic if unset; vlsh prints to stderr and substitutes empty—see [docs/posix-inventory.md](docs/posix-inventory.md)). Nested `${…}` is supported. Text in **single quotes** is literal (no expansion); **double quotes** allow expansion.
 
 **Last exit status** – `$?` holds the exit code of the most recently run command and is updated after every command, including each step in `&&` / `||` / `;` chains:
 ```
@@ -322,6 +322,24 @@ The ghost text is erased cleanly when you press Enter, so only the text you actu
 ### POSIX compatibility
 
 vlsh is not a POSIX-conformant shell, but it supports the most commonly used POSIX shell features so that everyday scripts and interactive habits carry over without surprises.
+
+#### Roadmap: incremental POSIX subset
+
+The goal is **option (b)**: grow a **documented, tested subset** of POSIX *sh* behavior—without claiming full conformance and without removing vlsh-specific features.
+
+**Counted as vlsh-only (not part of the POSIX subset goal):** plugins, `.vsh` / `v run`, `mux`, fish-style inline autosuggestions, and other extensions documented elsewhere.
+
+**Suggested phases**
+
+1. **Stabilise the current surface** — Treat parsing and execution that already exists as the contract: tokenisation and quotes (`parse_args`), command lists (`split_commands` for `&&` / `||` / `;`), `$` expansion (`expand_vars`), globs, leading `VAR=value` assignments, builtins such as `export`, `unset`, `cd`, `source` / `.`, pipes, and redirection. Extend **`v test .`** whenever behavior is fixed or specified more precisely (see `utils/*_test.v`, `shellops/*_test.v`, `exec/*_test.v`). A **feature inventory** (what is implemented vs not) is maintained in [`docs/posix-inventory.md`](docs/posix-inventory.md).
+
+2. **Parameter expansion** — Implemented: `${name}`, `${#name}`, `${var:-word}`, `${var:=word}`, `${var:+word}`, `${var:?word}` (partial vs strict POSIX—see inventory), nested `${…}`. Implementation: `expand_vars` / `expand_brace_param` in `utils/utils.v`; tests in `utils/utils_test.v`. README and `help` describe user-facing behaviour.
+
+3. **Shell grammar** — `for` / `while` / `until` / `case`, functions, subshells, and here-documents are large; introduce one construct at a time with tests.
+
+4. **Hardening** — Port or adapt individual cases from public POSIX-style shell test suites where practical; full certification is not the target.
+
+**Contributing** — Prefer small, test-backed changes that match existing modules (`utils`, `shellops`, `exec`, `cmds`) rather than large rewrites.
 
 #### Command chaining operators
 

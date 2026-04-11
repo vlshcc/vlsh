@@ -2,6 +2,15 @@
 
 ### Added
 
+**POSIX subset (incremental)**
+
+- `docs/posix-inventory.md` — tracks supported vs missing POSIX shell features (word
+  splitting, parameter expansion, redirections, builtins).
+- `expand_vars` / `expand_brace_param` in `utils/utils.v`: `${name}`, `${#name}`,
+  `${name:-word}`, `${name:=word}`, `${name:+word}`, `${name:?word}` (diagnostic to
+  stderr; returns empty — not full POSIX abort), nested `${…}` via recursive
+  expansion. Tests in `utils/utils_test.v`.
+
 **Makefile: `install`, `dist`, `dist-install`**
 - `make install` — install built `vlsh` to `$(PREFIX)/bin` (default `/usr/local/bin`).
 - `make dist` / `make dist-build` — run `pkg/dist.sh build` to produce Linux `.deb`/`.rpm`
@@ -37,6 +46,8 @@
 **Documentation**
 - `README.md`: features list, built-in commands table, redirection section,
   plugin management list, and `plugins` module API summary updated for the above.
+- `README.md` and built-in `help`: parameter expansion (`${…}` forms, quotes,
+  pointer to `docs/posix-inventory.md`); built-in table `echo` row updated.
 
 **Tab completion — command names from `$PATH`**
 - First word on the line merges filesystem matches with executable names found in
