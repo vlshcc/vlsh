@@ -9,7 +9,11 @@
 - `expand_vars` / `expand_brace_param` in `utils/utils.v`: `${name}`, `${#name}`,
   `${name:-word}`, `${name:=word}`, `${name:+word}`, `${name:?word}` (diagnostic to
   stderr; returns empty — not full POSIX abort), nested `${…}` via recursive
-  expansion. Tests in `utils/utils_test.v`.
+  expansion. `${name#pat}`, `${name##pat}`, `${name%pat}`, `${name%%pat}` with
+  glob-style `*` / `?` in `pat` (no `[]` yet). Tests in `utils/utils_test.v`.
+- `parse_args` — token boundaries respect `IFS` (default space/tab/newline when
+  unset; non-whitespace `IFS` can yield empty fields between delimiters).
+  Documented in `docs/posix-inventory.md`.
 
 **Makefile: `install`, `dist`, `dist-install`**
 - `make install` — install built `vlsh` to `$(PREFIX)/bin` (default `/usr/local/bin`).
@@ -46,8 +50,10 @@
 **Documentation**
 - `README.md`: features list, built-in commands table, redirection section,
   plugin management list, and `plugins` module API summary updated for the above.
-- `README.md` and built-in `help`: parameter expansion (`${…}` forms, quotes,
-  pointer to `docs/posix-inventory.md`); built-in table `echo` row updated.
+- `README.md` and built-in `help`: parameter expansion (`${…}` forms including
+  `#` / `##` / `%` / `%%` trim, quotes, `IFS` word splitting); built-in table
+  `echo` row and overview (`help` with no args) updated; `help echo` /
+  `help help` aligned; pointer to `docs/posix-inventory.md`.
 
 **Tab completion — command names from `$PATH`**
 - First word on the line merges filesystem matches with executable names found in

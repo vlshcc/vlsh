@@ -20,18 +20,18 @@ pub fn help(version string, args []string) {
 	println('')
 	entries := [
 		HelpEntry{'aliases', 'Manage aliases (list / add <name>=<cmd> / remove <name>).'},
-		HelpEntry{'cd',      'Change directory; ~ and ~/path are expanded to \$HOME.'},
-		HelpEntry{'echo',    'Print arguments, expanding \$VAR and \$0; supports > / >>.'},
-		HelpEntry{'exit',    'Exit the shell.'},
-		HelpEntry{'export',  'Set environment variables (export KEY=VALUE).'},
-		HelpEntry{'help',    'Displays this message. Use "help <cmd>" for details.'},
-		HelpEntry{'ls',      'List directory contents (built-in colorised view).'},
-		HelpEntry{'mux',     'Enter multiplexer mode (split panes, Ctrl+V prefix).'},
-		HelpEntry{'ocp',     'Copy, overriding an existing destination file.'},
+		HelpEntry{'cd', 'Change directory; ~ and ~/path are expanded to \$HOME.'},
+		HelpEntry{'echo', 'Print arguments (parameter expansion; same as other commands); > / >>.'},
+		HelpEntry{'exit', 'Exit the shell.'},
+		HelpEntry{'export', 'Set environment variables (export KEY=VALUE).'},
+		HelpEntry{'help', 'Displays this message. Use "help <cmd>" for details.'},
+		HelpEntry{'ls', 'List directory contents (built-in colorised view).'},
+		HelpEntry{'mux', 'Enter multiplexer mode (split panes, Ctrl+V prefix).'},
+		HelpEntry{'ocp', 'Copy, overriding an existing destination file.'},
 		HelpEntry{'plugins', 'Manage plugins (list / enable / disable / install / delete / reinstall / remote).'},
-		HelpEntry{'source',  'Execute commands from a file in the current session.'},
-		HelpEntry{'style',   'Manage prompt colors (list / set <key> <r> <g> <b>).'},
-		HelpEntry{'unset',   'Remove environment variables (unset KEY [KEY...]).'},
+		HelpEntry{'source', 'Execute commands from a file in the current session.'},
+		HelpEntry{'style', 'Manage prompt colors (list / set <key> <r> <g> <b>).'},
+		HelpEntry{'unset', 'Remove environment variables (unset KEY [KEY...]).'},
 		HelpEntry{'version', 'Print the vlsh version.'},
 	]
 	for e in entries {
@@ -44,9 +44,13 @@ pub fn help(version string, args []string) {
 	println('')
 	println('${term.bold('Parameter expansion')} — In unquoted (or double-quoted) words:')
 	println('  \$VAR  \$\$  \$0  \$?  \${name}  \${#name}  \${var:-word}  \${var:=word}')
-	println('  \${var:+word}  \${var:?word}  (nested \${...} is supported).')
-	println('  Full POSIX shell is not implemented; see README (POSIX compatibility)')
-	println('  and docs/posix-inventory.md for scope and gaps.')
+	println('  \${var:+word}  \${var:?word}  \${var#pat}  \${var##pat}  \${var%pat}  \${var%%pat}')
+	println('  (nested \${...} is supported; # / % patterns use * and ? in glob rules;')
+	println('  no [] in patterns yet).')
+	println('${term.bold('Word splitting')} — Unquoted words are split on \$IFS (default space,')
+	println('  tab, newline when IFS is unset). Custom non-whitespace IFS can yield empty')
+	println('  fields between delimiters. Full POSIX shell is not implemented; see README')
+	println('  (POSIX compatibility) and docs/posix-inventory.md for scope and gaps.')
 	println('')
 }
 
@@ -88,6 +92,9 @@ fn help_sub(cmd string) {
 			println('  \${var:=w}   Same, and assigns w to var when unset or empty.')
 			println('  \${var:+w}   w if var is set and non-empty; otherwise empty.')
 			println('  \${var:?w}   Error message to stderr if unset or empty (see README).')
+			println('  \${var#p}    Remove shortest prefix matching glob p; \${var##p} longest.')
+			println('  \${var%p}    Remove shortest suffix matching glob p; \${var%%p} longest.')
+			println('  Patterns use * and ? only ([] character classes not implemented yet).')
 		}
 		'exit' {
 			println('${term.bold('exit')} - Exit the shell')
@@ -101,7 +108,8 @@ fn help_sub(cmd string) {
 			println('  ${term.bold('help')} <cmd>    Show detailed help for a specific command.')
 			println('')
 			println('The overview also summarizes tab completion, parameter expansion,')
-			println('and points to README / docs/posix-inventory.md for POSIX subset details.')
+			println('word splitting (IFS), and points to README / docs/posix-inventory.md')
+			println('for POSIX subset details.')
 		}
 		'ls' {
 			println('${term.bold('ls')} - List directory contents')
@@ -240,10 +248,7 @@ pub fn cd(args []string) ! {
 	if os.is_file(target) {
 		return error('${target}: not a directory')
 	}
-	os.chdir(target) or {
-		return error('could not change directory to ${target}: ${err}')
-	}
+	os.chdir(target) or { return error('could not change directory to ${target}: ${err}') }
 	os.setenv('OLDPWD', current, true)
 	os.setenv('PWD', os.getwd(), true)
 }
-

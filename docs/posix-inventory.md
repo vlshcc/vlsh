@@ -8,7 +8,7 @@ Legend: **yes** = supported for typical use, **partial** = gaps/edge cases, **no
 
 | Feature | Status | Notes |
 |--------|--------|--------|
-| Field splitting on `IFS` (space/tab/newline) | partial | `parse_args` splits on ASCII space only, not full `IFS` |
+| Field splitting on `IFS` (space/tab/newline) | partial | Default `IFS` (space/tab/newline) when unset; custom non-whitespace `IFS` splits with empty fields; empty `IFS` in env still uses default whitespace for lexer (POSIX nuance) |
 | Single quotes `'…'` | yes | Literal; see `utils.parse_args` tests |
 | Double quotes `"…"` | yes | Literal except `$` expansion applied in `expand_vars` |
 | Backslash escapes | partial | Not a full POSIX escape table in all contexts |
@@ -27,7 +27,8 @@ Legend: **yes** = supported for typical use, **partial** = gaps/edge cases, **no
 | `${parameter:=word}` | yes | Assigns with `os.setenv` when unset or empty |
 | `${parameter:+word}` | yes | Set and non-empty → `word` |
 | `${parameter:?word}` | partial | Prints diagnostic to stderr; returns empty (POSIX may abort) |
-| `${parameter#pattern}` `${parameter%pattern}` … | no | |
+| `${parameter#pattern}` `${parameter##pattern}` | partial | Glob-style `*` / `?` (no `[]` yet); shortest / longest prefix trim |
+| `${parameter%pattern}` `${parameter%%pattern}` | partial | Same; shortest / longest suffix trim |
 | `${parameter//x/y}` … | no | |
 | Nested `${…}` in words | yes | Via recursive `expand_vars` on word parts |
 
@@ -72,7 +73,8 @@ When adding a POSIX-shaped feature, add a **small test** next to the relevant mo
 
 ## Next candidates (not yet committed)
 
-- `IFS`-aware splitting (or documented single-space behaviour only)
-- `${parameter#suffix}` / `${parameter%prefix}` trimming
+- `[]` character classes in `${#/%}` patterns; full pathname-pattern parity
+- Post-expansion field splitting (split expanded words on `IFS` separately from lexer)
+- True empty-`IFS` lexer behaviour vs POSIX
 - `read`, `set -e`-style options (policy decision)
 - More of the XCU §2 grammar with tests ported from public suites

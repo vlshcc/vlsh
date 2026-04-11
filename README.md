@@ -8,7 +8,7 @@ to read, modify, and extend.
 
 - **Pipes, redirection, and command chaining** — `cmd1 | cmd2`, `> file`, `>> file`, `< file`, and `2>&1` (merge stderr into captured stdout when piping or redirecting); AND-chains (`&&`), OR-chains (`||`), and unconditional sequences (`;`)
 - **Glob expansion** — `*.v`, `./*.deb`, `~/docs/**` expanded before execution
-- **Tilde and parameter expansion** — `~/path`, `$VAR`, `${var:-word}`, `${#var}`, nested `${…}`, and `VAR=val cmd` (see [docs/posix-inventory.md](docs/posix-inventory.md))
+- **Tilde and parameter expansion** — `~/path`, `$VAR`, `${var:-word}`, `${#var}`, `${var#pat}` / `${var%pat}` (glob `*`/`?` in `pat`), nested `${…}`, `VAR=val cmd`; unquoted words split on session **`IFS`** (default space/tab/newline) (see [docs/posix-inventory.md](docs/posix-inventory.md))
 - **Command history** — up/down arrow browsing and `Ctrl+R` incremental search;
   shared across all sessions (last 5000 entries in `~/.vlsh_history`)
 - **Tab completion** — files and directories; the first word also completes
@@ -299,7 +299,7 @@ vi ~/.config/nvim/init.vim
 FIELD_LIST='used,avail' df -h --no-sync .
 ```
 
-**Parameter expansion** – Applied when parsing command words (including arguments to `echo` and other commands): simple `$VAR`, `$$`, `$?`, `$0`, and POSIX-style brace forms such as `${VAR}`, `${#VAR}` (length), `${var:-word}` (default if unset or empty), `${var:=word}` (assign default), `${var:+word}` (alternate if set), `${var:?word}` (diagnostic if unset; vlsh prints to stderr and substitutes empty—see [docs/posix-inventory.md](docs/posix-inventory.md)). Nested `${…}` is supported. Text in **single quotes** is literal (no expansion); **double quotes** allow expansion.
+**Parameter expansion** – Applied when parsing command words (including arguments to `echo` and other commands): simple `$VAR`, `$$`, `$?`, `$0`, and POSIX-style brace forms such as `${VAR}`, `${#VAR}` (length), `${var:-word}` (default if unset or empty), `${var:=word}` (assign default), `${var:+word}` (alternate if set), `${var:?word}` (diagnostic if unset; vlsh prints to stderr and substitutes empty—see [docs/posix-inventory.md](docs/posix-inventory.md)), `${var#pat}` / `${var##pat}` (remove shortest / longest matching prefix; `*` and `?` glob in `pat`; `[]` classes not implemented yet), and `${var%pat}` / `${var%%pat}` (shortest / longest suffix). Nested `${…}` is supported. **Word splitting:** unquoted tokens are split on the session **`IFS`** (default space, tab, newline when `IFS` is unset); see the inventory for lexer vs strict POSIX field-splitting. Text in **single quotes** is literal (no expansion); **double quotes** allow expansion.
 
 **Last exit status** – `$?` holds the exit code of the most recently run command and is updated after every command, including each step in `&&` / `||` / `;` chains:
 ```
@@ -333,7 +333,7 @@ The goal is **option (b)**: grow a **documented, tested subset** of POSIX *sh* b
 
 1. **Stabilise the current surface** — Treat parsing and execution that already exists as the contract: tokenisation and quotes (`parse_args`), command lists (`split_commands` for `&&` / `||` / `;`), `$` expansion (`expand_vars`), globs, leading `VAR=value` assignments, builtins such as `export`, `unset`, `cd`, `source` / `.`, pipes, and redirection. Extend **`v test .`** whenever behavior is fixed or specified more precisely (see `utils/*_test.v`, `shellops/*_test.v`, `exec/*_test.v`). A **feature inventory** (what is implemented vs not) is maintained in [`docs/posix-inventory.md`](docs/posix-inventory.md).
 
-2. **Parameter expansion** — Implemented: `${name}`, `${#name}`, `${var:-word}`, `${var:=word}`, `${var:+word}`, `${var:?word}` (partial vs strict POSIX—see inventory), nested `${…}`. Implementation: `expand_vars` / `expand_brace_param` in `utils/utils.v`; tests in `utils/utils_test.v`. README and `help` describe user-facing behaviour.
+2. **Parameter expansion and word splitting** — Implemented: `${name}`, `${#name}`, `${var:-word}`, `${var:=word}`, `${var:+word}`, `${var:?word}` (partial vs strict POSIX—see inventory), `${var#pat}` / `${var##pat}` / `${var%pat}` / `${var%%pat}` (glob `*`/`?` in `pat`; no `[]` yet), nested `${…}`. **IFS:** `parse_args` uses the session `IFS` when set (non-empty); default space/tab/newline when unset; see inventory for lexer vs post-expansion nuances. Implementation: `expand_vars` / `expand_brace_param`, `ifs_chars_for_split` / `parse_args` in `utils/utils.v`; tests in `utils/utils_test.v`. README and `help` describe user-facing behaviour.
 
 3. **Shell grammar** — `for` / `while` / `until` / `case`, functions, subshells, and here-documents are large; introduce one construct at a time with tests.
 

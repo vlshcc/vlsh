@@ -3,7 +3,6 @@ module utils
 import os
 import strings
 import term
-
 import cfg
 
 const debug_mode = os.getenv('VLSHDEBUG')
@@ -21,6 +20,128 @@ fn brace_closing_index(s string, open_brace_idx int) int {
 		j++
 	}
 	return j
+}
+
+// ifs_chars_for_split returns the delimiter set used by parse_args for unquoted
+// token boundaries. If IFS is unset, POSIX default space/tab/newline applies.
+// If IFS is set to empty, we still use that default for lexer tokenisation so
+// simple commands remain usable (true post-expansion empty-IFS behaviour is
+// not implemented yet).
+fn ifs_chars_for_split() string {
+	env := os.environ()
+	if 'IFS' !in env {
+		return ' \t\n'
+	}
+	val := env['IFS']
+	if val.len == 0 {
+		return ' \t\n'
+	}
+	return val
+}
+
+fn ifs_whitespace_only(ifs string) bool {
+	for ch in ifs {
+		if ch != ` ` && ch != `\t` && ch != `\n` && ch != `\r` {
+			return false
+		}
+	}
+	return true
+}
+
+fn is_ifs_rune(ch rune, ifs string) bool {
+	for r in ifs {
+		if r == ch {
+			return true
+		}
+	}
+	return false
+}
+
+// glob_match implements POSIX-style pattern matching for ${parameter#word} etc.
+// Supports * and ? and literal bytes; [] classes are not implemented yet.
+fn glob_match(pattern string, s string) bool {
+	if pattern.len == 0 {
+		return s.len == 0
+	}
+	if pattern[0] == `*` {
+		for k := 0; k <= s.len; k++ {
+			if glob_match(pattern[1..], s[k..]) {
+				return true
+			}
+		}
+		return false
+	}
+	if pattern[0] == `?` {
+		if s.len == 0 {
+			return false
+		}
+		mut adv := 1
+		fb := s[0]
+		if fb >= 0x80 {
+			if (fb & 0xe0) == 0xc0 {
+				adv = 2
+			} else if (fb & 0xf0) == 0xe0 {
+				adv = 3
+			} else if (fb & 0xf8) == 0xf0 {
+				adv = 4
+			}
+		}
+		return glob_match(pattern[1..], s[adv..])
+	}
+	if s.len == 0 {
+		return false
+	}
+	if pattern[0] == s[0] {
+		return glob_match(pattern[1..], s[1..])
+	}
+	return false
+}
+
+fn remove_shortest_prefix(val string, pat string) string {
+	for i := 0; i <= val.len; i++ {
+		prefix := val[..i]
+		if glob_match(pat, prefix) {
+			return val[i..]
+		}
+	}
+	return val
+}
+
+fn remove_longest_prefix(val string, pat string) string {
+	for i := val.len; i >= 0; i-- {
+		prefix := val[..i]
+		if glob_match(pat, prefix) {
+			return val[i..]
+		}
+	}
+	return val
+}
+
+fn remove_shortest_suffix(val string, pat string) string {
+	for i := val.len; i >= 0; i-- {
+		suffix := val[i..]
+		if glob_match(pat, suffix) {
+			return val[..i]
+		}
+	}
+	return val
+}
+
+fn remove_longest_suffix(val string, pat string) string {
+	for i := 0; i <= val.len; i++ {
+		suffix := val[i..]
+		if glob_match(pat, suffix) {
+			return val[..i]
+		}
+	}
+	return val
+}
+
+fn param_value(name string) string {
+	if name == '0' {
+		return if os.args.len > 0 { os.args[0] } else { 'vlsh' }
+	}
+	return os.getenv(name)
 }
 
 fn is_param_name(name string) bool {
@@ -131,6 +252,26 @@ fn expand_brace_param(inner string) string {
 		}
 		return val
 	}
+	if rest.starts_with('##') {
+		pat := expand_vars(rest[2..])
+		val := param_value(name)
+		return remove_longest_prefix(val, pat)
+	}
+	if rest.starts_with('#') {
+		pat := expand_vars(rest[1..])
+		val := param_value(name)
+		return remove_shortest_prefix(val, pat)
+	}
+	if rest.starts_with('%%') {
+		pat := expand_vars(rest[2..])
+		val := param_value(name)
+		return remove_longest_suffix(val, pat)
+	}
+	if rest.starts_with('%') {
+		pat := expand_vars(rest[1..])
+		val := param_value(name)
+		return remove_shortest_suffix(val, pat)
+	}
 	return ''
 }
 
@@ -148,7 +289,8 @@ pub fn warn(input string) {
 
 // expand_vars replaces $VAR references in s with their values.
 // Recognised forms (in order of precedence):
-//   ${parameter…}       — brace parameter expansion (see expand_brace_param)
+//   ${parameter…}       — brace parameter expansion (see expand_brace_param:
+//                         :- := :+ :? # ## % %% and simple ${name})
 //   $?  $!  $#          — single-char special parameters (looked up in env)
 //   $$                  — current process ID
 //   $0                  — shell binary name (os.args[0])
@@ -211,30 +353,41 @@ pub fn expand_vars(s string) string {
 
 // parse_args splits a command string into tokens, respecting single and
 // double quoted strings (which are kept as one token with quotes stripped).
-// Variable references ($VAR, $?, $0, etc.) are expanded in each token, then
-// unquoted tokens that contain * or ? are glob-expanded against the filesystem;
-// if no files match the pattern is passed through unchanged.
+// Unquoted boundaries use IFS (default space, tab, newline when IFS is unset).
+// When IFS contains only whitespace, consecutive delimiters collapse; otherwise
+// each delimiter can produce an empty field. Variable references ($VAR, $?, $0,
+// etc.) are expanded in each token, then unquoted tokens that contain * or ?
+// are glob-expanded against the filesystem; if no files match the pattern is
+// passed through unchanged.
 pub fn parse_args(input string) []string {
-	mut args       := []string{}
-	mut current    := strings.new_builder(32)
-	mut in_single  := false
-	mut in_double  := false
+	ifs := ifs_chars_for_split()
+	collapse := ifs_whitespace_only(ifs)
+	mut args := []string{}
+	mut current := strings.new_builder(32)
+	mut in_single := false
+	mut in_double := false
 	mut has_quoted := false // any part of the current token was inside quotes
 	for ch in input {
 		if ch == `'` && !in_double {
-			in_single  = !in_single
+			in_single = !in_single
 			has_quoted = true
 		} else if ch == `"` && !in_single {
-			in_double  = !in_double
+			in_double = !in_double
 			has_quoted = true
-		} else if ch == ` ` && !in_single && !in_double {
-			if current.len > 0 {
+		} else if !in_single && !in_double && is_ifs_rune(ch, ifs) {
+			if collapse {
+				if current.len > 0 {
+					args << glob_expand(expand_vars(current.str()), has_quoted)
+					current = strings.new_builder(32)
+					has_quoted = false
+				}
+			} else {
 				args << glob_expand(expand_vars(current.str()), has_quoted)
-				current    = strings.new_builder(32)
+				current = strings.new_builder(32)
 				has_quoted = false
 			}
 		} else {
-			current.write_u8(ch)
+			current.write_rune(ch)
 		}
 	}
 	if current.len > 0 {
@@ -263,7 +416,7 @@ fn glob_expand(tok string, was_quoted bool) []string {
 	// to an absolute path so os.glob only sees a plain filename pattern.
 	if pattern.contains('/') {
 		last_sep := pattern.last_index_u8(`/`)
-		dir      := pattern[..last_sep]
+		dir := pattern[..last_sep]
 		file_pat := pattern[last_sep + 1..]
 		real_dir := os.real_path(dir)
 		if real_dir != '' && os.is_dir(real_dir) {
@@ -271,7 +424,9 @@ fn glob_expand(tok string, was_quoted bool) []string {
 		}
 	}
 	matches := os.glob(pattern) or { return [tok] }
-	if matches.len == 0 { return [tok] }
+	if matches.len == 0 {
+		return [tok]
+	}
 	return matches
 }
 
@@ -281,12 +436,19 @@ fn glob_expand(tok string, was_quoted bool) []string {
 // command line, e.g. `FOO=bar cmd arg`.
 pub fn is_env_assign(tok string) bool {
 	eq := tok.index('=') or { return false }
-	if eq == 0 { return false } // empty key
+	if eq == 0 {
+		return false
+	}
+	// empty key
 	key := tok[..eq]
 	first := key[0]
-	if !first.is_letter() && first != `_` { return false }
+	if !first.is_letter() && first != `_` {
+		return false
+	}
 	for ch in key[1..].bytes() {
-		if !ch.is_letter() && !ch.is_digit() && ch != `_` { return false }
+		if !ch.is_letter() && !ch.is_digit() && ch != `_` {
+			return false
+		}
 	}
 	return true
 }
@@ -298,35 +460,14 @@ pub fn debug[T](input ...T) {
 		return
 	}
 	if debug_mode == 'true' {
-		print(
-			term.bg_rgb(
-				style['style_debug_bg'][0],
-				style['style_debug_bg'][1],
-				style['style_debug_bg'][2],
-				term.rgb(
-					style['style_debug_fg'][0],
-					style['style_debug_fg'][1],
-					style['style_debug_fg'][2],
-					'debug::\t\t'
-				)
-			)
-		)
+		print(term.bg_rgb(style['style_debug_bg'][0], style['style_debug_bg'][1], style['style_debug_bg'][2],
+			term.rgb(style['style_debug_fg'][0], style['style_debug_fg'][1], style['style_debug_fg'][2],
+			'debug::\t\t')))
 		for i in input {
-			print(
-				term.bg_rgb(
-					style['style_git_bg'][0],
-					style['style_git_bg'][1],
-					style['style_git_bg'][2],
-					term.rgb(
-						style['style_git_fg'][0],
-						style['style_git_fg'][1],
-						style['style_git_fg'][2],
-						i.str()
-					)
-				)
-			)
+			print(term.bg_rgb(style['style_git_bg'][0], style['style_git_bg'][1], style['style_git_bg'][2],
+				term.rgb(style['style_git_fg'][0], style['style_git_fg'][1], style['style_git_fg'][2],
+				i.str())))
 		}
 		print('\n')
 	}
 }
-

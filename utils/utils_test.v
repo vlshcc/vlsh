@@ -138,9 +138,72 @@ fn test_expand_brace_word_expands_inner_dollar() {
 	os.unsetenv('VLSH_BR9')
 }
 
+fn test_expand_brace_hash_shortest_prefix() {
+	os.setenv('VLSH_PF1', 'foobar', true)
+	assert expand_vars('$' + '{VLSH_PF1#foo}') == 'bar'
+	os.unsetenv('VLSH_PF1')
+}
+
+fn test_expand_brace_hash_longest_prefix_star() {
+	os.setenv('VLSH_PF2', 'abc', true)
+	assert expand_vars('$' + '{VLSH_PF2##*}') == ''
+	os.unsetenv('VLSH_PF2')
+}
+
+fn test_expand_brace_percent_shortest_suffix() {
+	os.setenv('VLSH_PF3', 'file.txt', true)
+	assert expand_vars('$' + '{VLSH_PF3%.txt}') == 'file'
+	os.unsetenv('VLSH_PF3')
+}
+
+fn test_expand_brace_percent_longest_suffix() {
+	os.setenv('VLSH_PF4', 'a.b.c', true)
+	assert expand_vars('$' + '{VLSH_PF4%%.*}') == 'a'
+	os.unsetenv('VLSH_PF4')
+}
+
 // ---------------------------------------------------------------------------
 // parse_args
 // ---------------------------------------------------------------------------
+
+fn save_ifs() (bool, string) {
+	env := os.environ()
+	if 'IFS' in env {
+		return true, env['IFS']
+	}
+	return false, ''
+}
+
+fn restore_ifs(had bool, val string) {
+	if had {
+		os.setenv('IFS', val, true)
+	} else {
+		os.unsetenv('IFS')
+	}
+}
+
+fn test_parse_args_default_ifs_tab_and_newline() {
+	had, old := save_ifs()
+	os.unsetenv('IFS')
+	defer { restore_ifs(had, old) }
+	assert parse_args('a\tb') == ['a', 'b']
+	assert parse_args('a\nb') == ['a', 'b']
+}
+
+fn test_parse_args_ifs_colon_splits() {
+	had, old := save_ifs()
+	os.setenv('IFS', ':', true)
+	defer { restore_ifs(had, old) }
+	assert parse_args('a:b:c') == ['a', 'b', 'c']
+}
+
+fn test_parse_args_ifs_colon_empty_field() {
+	had, old := save_ifs()
+	os.setenv('IFS', ':', true)
+	defer { restore_ifs(had, old) }
+	assert parse_args(':a') == ['', 'a']
+	assert parse_args('a::b') == ['a', '', 'b']
+}
 
 fn test_parse_args_empty_string() {
 	assert parse_args('') == []string{}
@@ -304,7 +367,10 @@ fn test_glob_expand_no_wildcards_returned_unchanged() {
 fn test_glob_expand_star_in_tmp() {
 	pid := os.getpid()
 	dir := '/tmp/vlsh_glob_test_${pid}'
-	os.mkdir_all(dir) or { assert false, err.msg(); return }
+	os.mkdir_all(dir) or {
+		assert false, err.msg()
+		return
+	}
 	defer { os.rmdir_all(dir) or {} }
 	os.write_file('${dir}/aaa.txt', '') or {}
 	os.write_file('${dir}/bbb.txt', '') or {}
@@ -323,7 +389,10 @@ fn test_glob_expand_with_subdirectory_pattern() {
 	pid := os.getpid()
 	dir := '/tmp/vlsh_glob_sub_${pid}'
 	sub := '${dir}/inner'
-	os.mkdir_all(sub) or { assert false, err.msg(); return }
+	os.mkdir_all(sub) or {
+		assert false, err.msg()
+		return
+	}
 	defer { os.rmdir_all(dir) or {} }
 	os.write_file('${sub}/foo.txt', '') or {}
 	result := glob_expand('${dir}/inner/*.txt', false)
