@@ -4,6 +4,12 @@ This document tracks how vlsh relates to the POSIX shell command language ([XCU 
 
 Legend: **yes** = supported for typical use, **partial** = gaps/edge cases, **no** = not implemented, **n/a** = out of scope for the subset (vlsh extensions).
 
+## Interactive extensions (bash-like, not POSIX)
+
+| Feature | Status | Notes |
+|--------|--------|--------|
+| `!!` repeat last command | yes | Every `!!` in the line is replaced with the last **expanded** interactive command; `utils.expand_history_bangs` in `vlsh.v` main loop; `!$`, `!n`, etc. **no** |
+
 ## Word splitting and quoting
 
 | Feature | Status | Notes |

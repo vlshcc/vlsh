@@ -197,6 +197,27 @@ fn test_parse_args_ifs_colon_splits() {
 	assert parse_args('a:b:c') == ['a', 'b', 'c']
 }
 
+fn test_expand_history_bangs_no_double_bang() {
+	assert expand_history_bangs('ls -la', '')! == 'ls -la'
+}
+
+fn test_expand_history_bangs_substitutes() {
+	assert expand_history_bangs('sudo !!', 'ls -la')! == 'sudo ls -la'
+	assert expand_history_bangs('echo !!', 'date')! == 'echo date'
+}
+
+fn test_expand_history_bangs_all_occurrences() {
+	assert expand_history_bangs('!! | !!', 'ls')! == 'ls | ls'
+}
+
+fn test_expand_history_bangs_errors_when_no_last() {
+	expand_history_bangs('!!', '') or {
+		assert err.msg().contains('previous')
+		return
+	}
+	assert false
+}
+
 fn test_parse_args_ifs_colon_empty_field() {
 	had, old := save_ifs()
 	os.setenv('IFS', ':', true)

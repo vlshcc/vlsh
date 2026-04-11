@@ -49,8 +49,11 @@ pub fn help(version string, args []string) {
 	println('  no [] in patterns yet).')
 	println('${term.bold('Word splitting')} — Unquoted words are split on \$IFS (default space,')
 	println('  tab, newline when IFS is unset). Custom non-whitespace IFS can yield empty')
-	println('  fields between delimiters. Full POSIX shell is not implemented; see README')
-	println('  (POSIX compatibility) and docs/posix-inventory.md for scope and gaps.')
+	println('  fields between delimiters.')
+	println('${term.bold('History repeat')} — `!!` is replaced by the last command line')
+	println('  executed at this prompt (after expansion). Bash-style; not POSIX.')
+	println('  Full POSIX shell is not implemented; see README (POSIX compatibility)')
+	println('  and docs/posix-inventory.md for scope and gaps.')
 	println('')
 }
 
@@ -108,8 +111,8 @@ fn help_sub(cmd string) {
 			println('  ${term.bold('help')} <cmd>    Show detailed help for a specific command.')
 			println('')
 			println('The overview also summarizes tab completion, parameter expansion,')
-			println('word splitting (IFS), and points to README / docs/posix-inventory.md')
-			println('for POSIX subset details.')
+			println('word splitting (IFS), history repeat (`!!`), and points to README /')
+			println('docs/posix-inventory.md for POSIX subset details.')
 		}
 		'ls' {
 			println('${term.bold('ls')} - List directory contents')

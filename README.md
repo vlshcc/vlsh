@@ -10,7 +10,8 @@ to read, modify, and extend.
 - **Glob expansion** — `*.v`, `./*.deb`, `~/docs/**` expanded before execution
 - **Tilde and parameter expansion** — `~/path`, `$VAR`, `${var:-word}`, `${#var}`, `${var#pat}` / `${var%pat}` (glob `*`/`?` in `pat`), nested `${…}`, `VAR=val cmd`; unquoted words split on session **`IFS`** (default space/tab/newline) (see [docs/posix-inventory.md](docs/posix-inventory.md))
 - **Command history** — up/down arrow browsing and `Ctrl+R` incremental search;
-  shared across all sessions (last 5000 entries in `~/.vlsh_history`)
+  shared across all sessions (last 5000 entries in `~/.vlsh_history`); **`!!`**
+  repeats the last expanded command line (bash-style, interactive prompt only)
 - **Tab completion** — files and directories; the first word also completes
   command names found in `$PATH`; after `cd` with a space, only directories are
   suggested; plugins can register custom completions (e.g. SSH hostname completion)
@@ -310,6 +311,11 @@ true && echo $?   # prints 0
 
 **Command history** – up/down arrows browse history; `Ctrl+R` searches history.
 All instances share a global history file at `~/.vlsh_history` (last 5000 entries).
+**`!!`** (bash-style, not POSIX) — at the interactive prompt, every `!!` in the
+line is replaced with the **expanded** text of the previous command you ran
+(e.g. `sudo !!` after `ls -la` becomes `sudo ls -la`). If there is no previous
+command yet, vlsh prints an error and skips the line. Lines read from scripts
+(`source`, `.vlshrc`) do not update this “last command” for `!!`.
 
 **Tab completion** – completes file and directory names. For the first word on the line (the command), names from `$PATH` are merged with matches in the current directory (unless you are typing a path that contains `/`, which is completed only as a filesystem path). When the command is `cd`, only directories are suggested. Plugins can register a `completion` capability to provide custom completions for their commands (e.g. SSH hostnames for `ssh`).
 

@@ -14,6 +14,9 @@
 - `parse_args` — token boundaries respect `IFS` (default space/tab/newline when
   unset; non-whitespace `IFS` can yield empty fields between delimiters).
   Documented in `docs/posix-inventory.md`.
+- **`!!` history repeat** (interactive) — `utils.expand_history_bangs()` replaces
+  every `!!` with the last expanded command line from the prompt; `!$` / `!n`
+  not implemented. README, built-in `help`, and `docs/posix-inventory.md` updated.
 
 **Makefile: `install`, `dist`, `dist-install`**
 - `make install` — install built `vlsh` to `$(PREFIX)/bin` (default `/usr/local/bin`).
@@ -49,7 +52,8 @@
 
 **Documentation**
 - `README.md`: features list, built-in commands table, redirection section,
-  plugin management list, and `plugins` module API summary updated for the above.
+  plugin management list, and `plugins` module API summary updated for the above;
+  command history documents `!!`.
 - `README.md` and built-in `help`: parameter expansion (`${…}` forms including
   `#` / `##` / `%` / `%%` trim, quotes, `IFS` word splitting); built-in table
   `echo` row and overview (`help` with no args) updated; `help echo` /

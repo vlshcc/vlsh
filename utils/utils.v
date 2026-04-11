@@ -396,6 +396,19 @@ pub fn parse_args(input string) []string {
 	return args
 }
 
+// expand_history_bangs replaces every `!!` with last (the last expanded command
+// line executed from the interactive prompt). Bash-style; not POSIX. Fails when
+// the line contains `!!` but last is empty.
+pub fn expand_history_bangs(input string, last string) !string {
+	if !input.contains('!!') {
+		return input
+	}
+	if last == '' {
+		return error('no previous command for !!')
+	}
+	return input.replace('!!', last)
+}
+
 // glob_expand returns the filesystem matches for tok when it is unquoted and
 // contains wildcard characters (* or ?).  Falls back to [tok] if quoted, no
 // wildcards, or no matches found.
