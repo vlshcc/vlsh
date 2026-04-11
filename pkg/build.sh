@@ -3,7 +3,8 @@
 # Builds whatever package formats the current system supports.
 # Requires: v (V compiler)
 # Optional: dpkg-deb (for .deb), rpmbuild (for .rpm)
-# Cross-compilation: pass --freebsd or --dragonfly to cross-compile (requires clang + lld)
+# Cross-compilation: --freebsd / --dragonfly (requires clang + lld)
+# Native only: --netbsd / --openbsd (must run on NetBSD / OpenBSD; skipped elsewhere)
 set -e
 
 cd "$(dirname "$0")/.."
@@ -23,10 +24,14 @@ for arg in "$@"; do
     case "$arg" in
         --freebsd)    TARGET_OS="freebsd" ;;
         --dragonfly)  TARGET_OS="dragonfly" ;;
+        --netbsd)     TARGET_OS="netbsd" ;;
+        --openbsd)    TARGET_OS="openbsd" ;;
         --help|-h)
-            echo "Usage: $0 [--freebsd] [--dragonfly]"
+            echo "Usage: $0 [--freebsd] [--dragonfly] [--netbsd] [--openbsd]"
             echo "  --freebsd    Cross-compile for FreeBSD (requires clang + lld)"
             echo "  --dragonfly  Cross-compile for DragonFlyBSD (requires clang + lld)"
+            echo "  --netbsd     Native build on NetBSD only (skipped on other hosts)"
+            echo "  --openbsd    Native build on OpenBSD only (skipped on other hosts)"
             exit 0
             ;;
     esac
@@ -60,17 +65,34 @@ echo "==> Building vlsh ${VERSION} for ${MACHINE_ARCH} (target: ${TARGET_OS})"
 if [ "$TARGET_OS" = "freebsd" ]; then
     need clang
     has ld.lld || die "'ld.lld' is required for FreeBSD cross-compilation (install the 'lld' package)"
+    need git
 
     FBSD_SYSROOT="$HOME/.vmodules/freebsdroot"
+    FBSD_SYSROOT_REPO="https://github.com/spytheman/freebsd_base13.2"
 
     echo "==> Cross-compiling for FreeBSD"
-    echo "    (V will auto-download the FreeBSD sysroot on first run — ~458 MB)"
+    echo "    (sysroot ~458 MB — same tree V uses for linking)"
+
+    # V's cc_freebsd_cross() runs build_thirdparty_obj_files() *before*
+    # ensure_freebsdroot_exists(), so headers must already be on disk when gc.c
+    # is compiled. Pre-clone the sysroot; otherwise pthread.h etc. are missing.
+    if [ ! -f "$FBSD_SYSROOT/usr/include/pthread.h" ]; then
+        echo "==> Fetching FreeBSD sysroot (needed before thirdparty .o build)"
+        if [ -d "$FBSD_SYSROOT" ]; then
+            echo "    removing incomplete sysroot at $FBSD_SYSROOT"
+            rm -rf "$FBSD_SYSROOT"
+        fi
+        mkdir -p "$(dirname "$FBSD_SYSROOT")"
+        git clone --depth 1 "$FBSD_SYSROOT_REPO" "$FBSD_SYSROOT" \
+            || die "failed to clone FreeBSD sysroot (need git + network)"
+    fi
 
     # V's thirdparty object compilation doesn't add FreeBSD target flags,
     # so we inject them via CFLAGS to ensure gc.o, mbedtls, etc. are
     # compiled against the FreeBSD sysroot rather than the host's glibc.
+    # Include paths match cc_freebsd_cross() in V's cc.v (include + usr/include).
     rm -rf "$HOME/.vmodules/.cache"
-    CFLAGS="--target=x86_64-unknown-freebsd14.0 --sysroot=${FBSD_SYSROOT} -I${FBSD_SYSROOT}/usr/include" \
+    CFLAGS="--target=x86_64-unknown-freebsd14.0 --sysroot=${FBSD_SYSROOT} -I${FBSD_SYSROOT}/include -I${FBSD_SYSROOT}/usr/include" \
         v -os freebsd -prod .
 
     mkdir -p builds
@@ -94,9 +116,17 @@ if [ "$TARGET_OS" = "dragonfly" ]; then
     echo "==> Cross-compiling for DragonFlyBSD"
 
     if [ ! -d "$DFBSD_SYSROOT/usr/include" ]; then
-        has bsdtar  || die "'bsdtar' is required to extract the DragonFlyBSD sysroot (install 'bsdtar' or 'libarchive')"
         has curl    || die "'curl' is required to download the DragonFlyBSD ISO"
         has bunzip2 || die "'bunzip2' is required to decompress the DragonFlyBSD ISO (install 'bzip2')"
+
+        # ISO9660 extraction: libarchive bsdtar is preferred; GNU tar (common on Linux) usually works too.
+        if command -v bsdtar >/dev/null 2>&1; then
+            DFBSD_TAR="bsdtar"
+        elif command -v tar >/dev/null 2>&1; then
+            DFBSD_TAR="tar"
+        else
+            die "need bsdtar (e.g. apt install libarchive-tools) or tar to extract the DragonFly ISO"
+        fi
 
         DFBSD_ISO_URL="https://avalon.dragonflybsd.org/iso-images/dfly-x86_64-6.4.2_REL.iso.bz2"
         DFBSD_ISO=$(mktemp /tmp/dragonfly-XXXXXX.iso)
@@ -106,10 +136,10 @@ if [ "$TARGET_OS" = "dragonfly" ]; then
         curl -fSL "$DFBSD_ISO_URL" | bunzip2 > "$DFBSD_ISO" \
             || die "failed to download ${DFBSD_ISO_URL}"
 
-        echo "    Extracting sysroot (usr/include, usr/lib, lib) ..."
+        echo "    Extracting sysroot (usr/include, usr/lib, lib) using ${DFBSD_TAR} ..."
         mkdir -p "$DFBSD_SYSROOT"
-        bsdtar -xf "$DFBSD_ISO" -C "$DFBSD_SYSROOT" usr/include usr/lib lib \
-            || die "bsdtar failed — you can create the sysroot manually by copying /usr/include, /usr/lib, and /lib from a DragonFlyBSD installation to ${DFBSD_SYSROOT}/"
+        "$DFBSD_TAR" -xf "$DFBSD_ISO" -C "$DFBSD_SYSROOT" usr/include usr/lib lib \
+            || die "${DFBSD_TAR} failed — install bsdtar (libarchive-tools) or GNU tar, or copy usr/include, usr/lib, lib from DragonFlyBSD to ${DFBSD_SYSROOT}/"
 
         rm -f "$DFBSD_ISO"
         trap - EXIT
@@ -157,6 +187,42 @@ if [ "$TARGET_OS" = "dragonfly" ]; then
     echo ""
     echo "Done. Built artifact:"
     echo "  builds/vlsh_${VERSION}_${DEB_ARCH}_dragonfly"
+    exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# NetBSD (native build only — V has no Linux→NetBSD cross sysroot like FreeBSD)
+# ---------------------------------------------------------------------------
+if [ "$TARGET_OS" = "netbsd" ]; then
+    if [ "$(uname -s)" != "NetBSD" ]; then
+        echo "==> Skipping NetBSD artifact: run pkg/build.sh --netbsd on a NetBSD system (no cross-sysroot in V yet)."
+        exit 0
+    fi
+    echo "==> Native NetBSD build"
+    v -prod .
+    mkdir -p builds
+    cp vlsh "builds/vlsh_${VERSION}_${DEB_ARCH}_netbsd"
+    echo ""
+    echo "Done. Built artifact:"
+    echo "  builds/vlsh_${VERSION}_${DEB_ARCH}_netbsd"
+    exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# OpenBSD (native build only)
+# ---------------------------------------------------------------------------
+if [ "$TARGET_OS" = "openbsd" ]; then
+    if [ "$(uname -s)" != "OpenBSD" ]; then
+        echo "==> Skipping OpenBSD artifact: run pkg/build.sh --openbsd on an OpenBSD system (no cross-sysroot in V yet)."
+        exit 0
+    fi
+    echo "==> Native OpenBSD build"
+    v -prod .
+    mkdir -p builds
+    cp vlsh "builds/vlsh_${VERSION}_${DEB_ARCH}_openbsd"
+    echo ""
+    echo "Done. Built artifact:"
+    echo "  builds/vlsh_${VERSION}_${DEB_ARCH}_openbsd"
     exit 0
 fi
 

@@ -2,6 +2,23 @@
 
 ### Added
 
+**Makefile: `install`, `dist`, `dist-install`**
+- `make install` — install built `vlsh` to `$(PREFIX)/bin` (default `/usr/local/bin`).
+- `make dist` / `make dist-build` — run `pkg/dist.sh build` to produce Linux `.deb`/`.rpm`
+  and standalone binary, FreeBSD and DragonFly cross-builds, and NetBSD/OpenBSD
+  artifacts when those steps run on native NetBSD/OpenBSD (otherwise skipped).
+  Existing files in `builds/` are renamed with a timestamp before rebuilding so
+  prior artifacts are kept.
+- `make dist-install` — run `pkg/dist.sh install` to install the newest matching
+  package or binary from `builds/` for the current OS.
+
+**`pkg/dist.sh`**
+- Orchestrates the above; documents behaviour in `README.md`.
+
+**`pkg/build.sh --netbsd` and `--openbsd`**
+- Native builds on NetBSD/OpenBSD; no-op with a message on other hosts (V has no
+  Linux cross-sysroot for these targets yet).
+
 **`plugins reinstall <name>`**
 - New subcommand and `plugins.reinstall_plugin()` in `plugins/plugins.v`: removes the
   local plugin tree and compiled binary, then downloads and installs the latest
@@ -29,6 +46,18 @@
 - `README.md` and built-in `help` output updated; tests in `exec/exec_test.v`.
 
 ### Bug fixes
+
+**DragonFly ISO extraction without `bsdtar`**
+- Prefer `bsdtar` when available; otherwise fall back to `tar` (GNU tar on typical
+  Linux systems) so `make dist` does not require `libarchive-tools` if only GNU
+  tar is installed.
+
+**FreeBSD cross-compile (`pthread.h` not found during thirdparty build)**
+- V’s `cc_freebsd_cross()` runs `build_thirdparty_obj_files()` before
+  `ensure_freebsdroot_exists()`, so the sysroot was not guaranteed to exist when
+  compiling `gc.c`. `pkg/build.sh` now pre-clones the same FreeBSD base repo V
+  uses if `usr/include/pthread.h` is missing, and adds `-I…/include` alongside
+  `-I…/usr/include` in `CFLAGS` to match V’s linker compile step.
 
 **`cfg.extract_style()` default colours**
 - Default RGB entries for missing style keys used `<<` on a new map key, which

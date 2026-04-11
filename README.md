@@ -87,6 +87,22 @@ v .
 ./vlsh
 ```
 
+From the same directory, `make help` summarizes Makefile targets; `make test` runs the test suite (`v test .`), `make build` compiles (`v .`), and `make clean` removes the `vlsh` binary. Override the compiler with `make V=/path/to/v`.
+
+`make install` installs the built `vlsh` into `$(PREFIX)/bin` (default `/usr/local/bin`). Use `sudo make install`, or set `DESTDIR` / `PREFIX` for a staged install.
+
+**Distribution builds** — `make dist` (same as `make dist-build`) runs `pkg/dist.sh build`. Any **existing** matching artifacts already in `builds/` are renamed with a timestamp so a new run does not silently overwrite them, then the script runs `pkg/build.sh` for:
+
+- **Linux** — `.deb` (needs `dpkg-deb`), `.rpm` (needs `rpmbuild`), and a standalone `vlsh_*_*_linux` binary
+- **FreeBSD** and **DragonFly** — cross-compiled binaries (needs `clang` and `lld`; DragonFly also downloads an ISO once — use `bsdtar` *or* GNU `tar` to extract it, plus `curl` and `bunzip2`)
+- **NetBSD** and **OpenBSD** — native builds only: when `dist` runs on Linux, these steps no-op; run `pkg/build.sh --netbsd` or `--openbsd` **on** NetBSD/OpenBSD to produce `builds/vlsh_*_*_netbsd` / `_openbsd` (V does not yet ship a Linux→NetBSD/OpenBSD cross sysroot like FreeBSD).
+
+**FreeBSD cross-build** — `pkg/build.sh` pre-clones the FreeBSD sysroot (same GitHub tree V uses for linking) *before* invoking `v`, because V currently builds third-party C objects before it downloads that sysroot; without this step, `pthread.h` and similar headers are missing during `gc.o` compilation.
+
+`make dist-install` runs `pkg/dist.sh install`: it selects the **newest** suitable `.deb`, `.rpm`, or OS-specific binary in `builds/` for the current platform (by modification time) and installs it (`sudo` when not root).
+
+Running `make dist build` executes **both** the `dist` and `build` targets in order (a full distribution build, then an extra `v .` for the current tree — usually you only need `make dist`).
+
 Or run directly without compiling first:
 
 ```sh
@@ -95,10 +111,11 @@ v run .
 
 ### System-wide install
 
-After building, copy the binary to a directory on your system `PATH`:
+After building, install the binary to your `PATH`:
 
 ```sh
-sudo cp vlsh /usr/local/bin/vlsh
+sudo make install
+# or: sudo cp vlsh /usr/local/bin/vlsh
 ```
 
 Verify it is accessible:
