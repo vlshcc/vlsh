@@ -158,7 +158,7 @@ fn main() {
 			append_history(trimmed)
 			history_entries << trimmed
 			if history_entries.len > 5000 {
-				history_entries = history_entries[1..]
+				history_entries = history_entries[1..].clone()
 			}
 		}
 		plugins.run_pre_hooks(loaded_plugins, trimmed)
