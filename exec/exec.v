@@ -383,10 +383,42 @@ fn alias_key_exists(key string, aliases map[string]string) bool {
 	return false
 }
 
-fn get_search_paths() []string {
+pub fn get_search_paths() []string {
 	paths := os.getenv('PATH').split(':').filter(it.len > 0)
 	if paths.len > 0 { return paths }
 	return ['/usr/local/bin', '/usr/bin', '/bin']
+}
+
+// path_command_completions returns bare command names from $PATH that start with prefix.
+// Names containing '/' are not handled here (those use path-style resolution).
+pub fn path_command_completions(prefix string) []string {
+	if prefix.contains('/') {
+		return []string{}
+	}
+	mut seen := map[string]bool{}
+	mut out := []string{}
+	for dir in get_search_paths() {
+		if !os.exists(dir) || !os.is_dir(dir) {
+			continue
+		}
+		entries := os.ls(dir) or { continue }
+		for name in entries {
+			if prefix.len > 0 && !name.starts_with(prefix) {
+				continue
+			}
+			if seen[name] {
+				continue
+			}
+			full := '${dir}/${name}'
+			if !os.exists(full) {
+				continue
+			}
+			seen[name] = true
+			out << name
+		}
+	}
+	out.sort()
+	return out
 }
 
 fn (mut c Cmd_object) find_exe() ! {

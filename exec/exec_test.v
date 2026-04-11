@@ -333,6 +333,39 @@ fn test_get_search_paths_falls_back_when_empty() {
 	assert '/bin' in paths
 }
 
+fn test_path_command_completions_finds_prefix_in_path() {
+	dir := os.join_path(os.temp_dir(), 'vlsh_pct_${os.getpid()}')
+	os.mkdir_all(dir) or { assert false }
+	defer { os.rmdir_all(dir) or {} }
+	exe := os.join_path(dir, 'vfoo')
+	os.write_file(exe, '') or { assert false }
+	old := os.getenv('PATH')
+	os.setenv('PATH', '${dir}:${old}', true)
+	defer { os.setenv('PATH', old, true) }
+	names := path_command_completions('vf')
+	assert 'vfoo' in names
+}
+
+fn test_path_command_completions_skips_slash_prefix() {
+	assert path_command_completions('bin/ls').len == 0
+}
+
+fn test_path_command_completions_dedupes_same_name_in_multiple_path_dirs() {
+	dir1 := os.join_path(os.temp_dir(), 'vlsh_pd1_${os.getpid()}')
+	dir2 := os.join_path(os.temp_dir(), 'vlsh_pd2_${os.getpid()}')
+	os.mkdir_all(dir1) or { assert false }
+	os.mkdir_all(dir2) or { assert false }
+	defer { os.rmdir_all(dir1) or {} }
+	defer { os.rmdir_all(dir2) or {} }
+	os.write_file(os.join_path(dir1, 'samecmd'), '') or { assert false }
+	os.write_file(os.join_path(dir2, 'samecmd'), '') or { assert false }
+	old := os.getenv('PATH')
+	os.setenv('PATH', '${dir1}:${dir2}', true)
+	defer { os.setenv('PATH', old, true) }
+	names := path_command_completions('same')
+	assert names.filter(it == 'samecmd').len == 1
+}
+
 // ---------------------------------------------------------------------------
 // internal_cmd_modifiers
 // ---------------------------------------------------------------------------

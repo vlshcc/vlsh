@@ -218,7 +218,7 @@ fn (mut loc_cfg Cfg) extract_style(cfd []string) ! {
 
 	for k, v in default {
 		if k !in loc_cfg.style {
-			loc_cfg.style[k] << v
+			loc_cfg.style[k] = v
 		}
 	}
 

@@ -21,6 +21,20 @@
 - `README.md`: features list, built-in commands table, redirection section,
   plugin management list, and `plugins` module API summary updated for the above.
 
+**Tab completion — command names from `$PATH`**
+- First word on the line merges filesystem matches with executable names found in
+  `$PATH` (`exec.path_command_completions()` in `exec/exec.v`, wired from
+  `tab_complete()` in `vlsh.v`). Path fragments containing `/` still complete
+  only as filesystem paths; after `cd` with a space, only directories are suggested.
+- `README.md` and built-in `help` output updated; tests in `exec/exec_test.v`.
+
+### Bug fixes
+
+**`cfg.extract_style()` default colours**
+- Default RGB entries for missing style keys used `<<` on a new map key, which
+  did not assign the slice; defaults were never applied (`cfg_test` failed).
+  Replaced with `loc_cfg.style[k] = v`.
+
 ---
 
 ## 2026-03-06 — version 1.1.7.1

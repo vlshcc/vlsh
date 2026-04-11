@@ -11,8 +11,9 @@ to read, modify, and extend.
 - **Tilde and environment-variable expansion** — `~/path`, `$VAR`, `VAR=val cmd`
 - **Command history** — up/down arrow browsing and `Ctrl+R` incremental search;
   shared across all sessions (last 5000 entries in `~/.vlsh_history`)
-- **Tab completion** — files and directories; `cd` completes only directories;
-  plugins can register custom completions (e.g. SSH hostname completion)
+- **Tab completion** — files and directories; the first word also completes
+  command names found in `$PATH`; after `cd` with a space, only directories are
+  suggested; plugins can register custom completions (e.g. SSH hostname completion)
 - **Inline autosuggestions** — as you type, the most recent matching history
   entry is shown as dimmed ghost text; `cd` suggestions are validated against
   the current filesystem and fall back to live directory listing when no valid
@@ -293,11 +294,11 @@ true && echo $?   # prints 0
 **Command history** – up/down arrows browse history; `Ctrl+R` searches history.
 All instances share a global history file at `~/.vlsh_history` (last 5000 entries).
 
-**Tab completion** – completes file and directory names. When the command is `cd`, only directories are suggested. Plugins can register a `completion` capability to provide custom completions for their commands (e.g. SSH hostnames for `ssh`).
+**Tab completion** – completes file and directory names. For the first word on the line (the command), names from `$PATH` are merged with matches in the current directory (unless you are typing a path that contains `/`, which is completed only as a filesystem path). When the command is `cd`, only directories are suggested. Plugins can register a `completion` capability to provide custom completions for their commands (e.g. SSH hostnames for `ssh`).
 
 **Inline autosuggestions** – as you type, vlsh searches command history (most-recent first) for the first entry that starts with the current input and displays the untyped remainder as dimmed ghost text to the right of the cursor. Pressing `→` (right arrow) or `End` when the cursor is already at the end of the line accepts the full suggestion and inserts it into the input.
 
-For `cd` commands, each history candidate is validated against the filesystem before being offered: if the target directory no longer exists the entry is skipped and the next matching history entry is tried. When no valid history entry is found, the shell falls back to the tab-completion engine to generate a filesystem suggestion — for `cd` this is the first alphabetically sorted directory in the current working directory (or inside the partial path already typed); for other commands it is the first matching file or completion result.
+For `cd` commands, each history candidate is validated against the filesystem before being offered: if the target directory no longer exists the entry is skipped and the next matching history entry is tried. When no valid history entry is found, the shell falls back to the tab-completion engine to generate a filesystem suggestion — for `cd` this is the first alphabetically sorted directory in the current working directory (or inside the partial path already typed); for other commands it is the first matching file, `$PATH` command name, or plugin completion result.
 
 The ghost text is erased cleanly when you press Enter, so only the text you actually typed appears in the executed command line.
 

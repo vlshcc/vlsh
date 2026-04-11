@@ -73,6 +73,21 @@ fn tab_complete(input string, loaded []plugins.Plugin) []string {
 		}
 	}
 
+	// First word, not a path fragment: merge executables from $PATH (same lookup as running a command).
+	if parts.len == 1 && !last_word.contains('/') && !dirs_only {
+		mut seen := map[string]bool{}
+		for r in results {
+			seen[r] = true
+		}
+		for name in exec.path_command_completions(file_prefix) {
+			s := cmd_prefix + name
+			if !seen[s] {
+				seen[s] = true
+				results << s
+			}
+		}
+	}
+
 	results.sort()
 	return results
 }

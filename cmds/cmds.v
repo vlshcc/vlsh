@@ -38,6 +38,10 @@ pub fn help(version string, args []string) {
 		println('  ${term.bold(e.cmd):-20}  ${e.desc}')
 	}
 	println('')
+	println('${term.bold('Line editing')} — Tab completes files and directories; the first')
+	println('word also completes command names from \$PATH. After ${term.bold('cd')} with a')
+	println('space, only directory names are suggested. Plugins may add more completions.')
+	println('')
 }
 
 fn help_sub(cmd string) {
@@ -61,7 +65,7 @@ fn help_sub(cmd string) {
 			println('  ${term.bold('cd')} [dir]   Change to dir, or to home directory if omitted.')
 			println('')
 			println('~ and ~/path are expanded to \$HOME.')
-			println('Tab completion after cd suggests only directories, not files.')
+			println('Tab completion after cd and a space suggests only directories, not files.')
 		}
 		'echo' {
 			println('${term.bold('echo')} - Print arguments')
@@ -84,6 +88,9 @@ fn help_sub(cmd string) {
 			println('')
 			println('  ${term.bold('help')}          Show overview of all built-in commands.')
 			println('  ${term.bold('help')} <cmd>    Show detailed help for a specific command.')
+			println('')
+			println('The overview also summarizes tab completion: files, directories,')
+			println('and command names from \$PATH (after cd with a space, directories only).')
 		}
 		'ls' {
 			println('${term.bold('ls')} - List directory contents')
