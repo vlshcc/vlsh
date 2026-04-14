@@ -4,7 +4,7 @@ PREFIX ?= /usr/local
 # Default for `make fuzz` (override: make fuzz FUZZ_ITER=200000).
 FUZZ_ITER ?= 50000
 
-.PHONY: all build test check fuzz clean install dist dist-build dist-install help
+.PHONY: all build test check fuzz clean install dist dist-build dist-install openbsd help
 
 all: build
 
@@ -21,6 +21,7 @@ help:
 	@echo "                       (Linux .deb/.rpm, FreeBSD/DragonFly cross-bins; NetBSD/OpenBSD when native)."
 	@echo "  make dist-install    Install the newest matching package/binary from builds/ for this OS"
 	@echo "                       (pkg/dist.sh install; sudo when not root)."
+	@echo "  make openbsd         Native OpenBSD build artifact (pkg/build.sh --openbsd; on OpenBSD only)."
 	@echo ""
 	@echo "Variables:  V=/path/to/v   PREFIX=$(PREFIX)   DESTDIR=   FUZZ_ITER=$(FUZZ_ITER)   FUZZ_SEED="
 	@echo "More detail: README.md (Build and run, Distribution builds)."
@@ -51,3 +52,7 @@ dist dist-build:
 # Install the newest matching package/binary from builds/ for this OS (see pkg/dist.sh).
 dist-install:
 	sh ./pkg/dist.sh install
+
+# Native OpenBSD binary under builds/ (no-op on other hosts — see pkg/build.sh --openbsd).
+openbsd:
+	sh ./pkg/build.sh --openbsd
