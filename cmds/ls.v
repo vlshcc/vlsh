@@ -1,5 +1,6 @@
 module cmds
 
+import exec
 import os
 import term
 import math
@@ -15,7 +16,7 @@ pub fn ls(args []string) ! {
 
 	mut target := '.'
 	if args.len > 0 {
-		target = args[0]
+		target = exec.expand_tilde(args[0])
 	}
 
 	entries := os.ls(target) or {

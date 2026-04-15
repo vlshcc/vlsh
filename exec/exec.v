@@ -76,7 +76,7 @@ pub fn (mut t Task) prepare_task() !int {
 }
 
 // expand_tilde expands a leading ~ or ~/ to the user's home directory.
-fn expand_tilde(s string) string {
+pub fn expand_tilde(s string) string {
 	if s == '~' {
 		return os.home_dir()
 	}
