@@ -1,6 +1,9 @@
 # vlsh — V project: use the V compiler from PATH (override with `make V=/path/to/v`).
 V ?= v
 PREFIX ?= /usr/local
+# Embed `git rev-parse --short` in the reported version (1.2-<sha>); empty if not a git checkout.
+GIT_SHA := $(shell git rev-parse --short HEAD 2>/dev/null)
+V_GIT := $(if $(GIT_SHA),-d git_sha=$(GIT_SHA))
 # Default for `make fuzz` (override: make fuzz FUZZ_ITER=200000).
 FUZZ_ITER ?= 50000
 
@@ -11,7 +14,7 @@ all: build
 help:
 	@echo "vlsh — Makefile targets"
 	@echo ""
-	@echo "  make, make build     Compile the shell (v . in the project root)."
+	@echo "  make, make build     Compile the shell; embeds git short SHA in the version (1.2-<sha>)."
 	@echo "  make test, make check   Run the test suite (v test .)."
 	@echo "  make fuzz               Run tools/fuzz_shell.v (random input stress; FUZZ_ITER=$(FUZZ_ITER))."
 	@echo "  make clean           Remove the vlsh binary from the build tree."
@@ -28,7 +31,7 @@ help:
 	@echo ""
 
 build:
-	$(V) .
+	$(V) $(V_GIT) .
 
 test: check
 

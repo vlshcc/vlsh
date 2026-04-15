@@ -43,6 +43,12 @@ need v
 # Metadata
 # ---------------------------------------------------------------------------
 VERSION=$(grep "version:" v.mod | sed "s/.*'\(.*\)'.*/\1/")
+GIT_SHA=$(git rev-parse --short HEAD 2>/dev/null || true)
+if [ -n "$GIT_SHA" ]; then
+	V_GIT_SHA_FLAG="-d git_sha=${GIT_SHA}"
+else
+	V_GIT_SHA_FLAG=""
+fi
 MACHINE_ARCH=$(uname -m)
 
 # Map uname -m to Debian architecture names
@@ -93,7 +99,7 @@ if [ "$TARGET_OS" = "freebsd" ]; then
     # Include paths match cc_freebsd_cross() in V's cc.v (include + usr/include).
     rm -rf "$HOME/.vmodules/.cache"
     CFLAGS="--target=x86_64-unknown-freebsd14.0 --sysroot=${FBSD_SYSROOT} -I${FBSD_SYSROOT}/include -I${FBSD_SYSROOT}/usr/include" \
-        v -os freebsd -prod .
+        v -os freebsd -prod $V_GIT_SHA_FLAG .
 
     mkdir -p builds
     cp vlsh "builds/vlsh_${VERSION}_${DEB_ARCH}_freebsd"
@@ -179,7 +185,7 @@ if [ "$TARGET_OS" = "dragonfly" ]; then
     # target linker.  Instead we pass equivalent optimization flags manually.
     CFLAGS="--target=x86_64-unknown-dragonfly --sysroot=${DFBSD_SYSROOT} -I${DFBSD_SYSROOT}/usr/include -I${V_GC_INC} -fuse-ld=lld -O2 -DNDEBUG" \
     LDFLAGS="--target=x86_64-unknown-dragonfly --sysroot=${DFBSD_SYSROOT} -fuse-ld=lld" \
-        v -cc clang -os dragonfly .
+        v -cc clang -os dragonfly $V_GIT_SHA_FLAG .
 
     mkdir -p builds
     cp vlsh "builds/vlsh_${VERSION}_${DEB_ARCH}_dragonfly"
@@ -199,7 +205,7 @@ if [ "$TARGET_OS" = "netbsd" ]; then
         exit 0
     fi
     echo "==> Native NetBSD build"
-    v -prod .
+    v -prod $V_GIT_SHA_FLAG .
     mkdir -p builds
     cp vlsh "builds/vlsh_${VERSION}_${DEB_ARCH}_netbsd"
     echo ""
@@ -217,7 +223,7 @@ if [ "$TARGET_OS" = "openbsd" ]; then
         exit 0
     fi
     echo "==> Native OpenBSD build"
-    v -prod .
+    v -prod $V_GIT_SHA_FLAG .
     mkdir -p builds
     cp vlsh "builds/vlsh_${VERSION}_${DEB_ARCH}_openbsd"
     echo ""
@@ -351,7 +357,7 @@ fi
 # Compile
 # ---------------------------------------------------------------------------
 echo "==> Compiling"
-v -prod .
+v -prod $V_GIT_SHA_FLAG .
 
 # ---------------------------------------------------------------------------
 # Build .deb (if tools available)

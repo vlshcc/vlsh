@@ -367,7 +367,9 @@ pub fn parse_args(input string) []string {
 	mut in_single := false
 	mut in_double := false
 	mut has_quoted := false // any part of the current token was inside quotes
-	for ch in input {
+	// Iterate runes, not bytes: `for ch in string` in V is byte-wise; UTF-8
+	// would be split (e.g. ä → Ã¤) and paths like Hämtningar would break cd.
+	for ch in input.runes() {
 		if ch == `'` && !in_double {
 			in_single = !in_single
 			has_quoted = true

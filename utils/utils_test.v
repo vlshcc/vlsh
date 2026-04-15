@@ -190,6 +190,11 @@ fn test_parse_args_default_ifs_tab_and_newline() {
 	assert parse_args('a\nb') == ['a', 'b']
 }
 
+fn test_parse_args_preserves_utf8_in_tokens() {
+	assert parse_args('cd Hämtningar') == ['cd', 'Hämtningar']
+	assert parse_args('echo åäö') == ['echo', 'åäö']
+}
+
 fn test_parse_args_ifs_colon_splits() {
 	had, old := save_ifs()
 	os.setenv('IFS', ':', true)

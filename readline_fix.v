@@ -695,6 +695,10 @@ fn vlsh_read_line(mut r VlshReadline, prompt string) !string {
 	print(r.prompt)
 	for {
 		flush_stdout()
+		// On Unix, readline.read_char uses term.utf8_getchar: each value is
+		// already a full Unicode scalar (or ASCII). Do not read extra bytes
+		// per “UTF-8 sequence” — that would consume the next key and corrupt
+		// the line (e.g. Tab completion after Hä).
 		c := r.read_char() or { return err }
 		a, ch := vlsh_analyse(r, c)
 		done := if r.search_mode {
