@@ -43,6 +43,20 @@ fn test_cd_file_path_returns_not_a_directory_error() {
 	assert false, 'expected "not a directory" error'
 }
 
+fn test_cd_joins_multiple_words_when_path_has_spaces() {
+	orig := os.getwd()
+	base := os.join_path(os.temp_dir(), 'vlsh_cd_sp_${os.getpid()}')
+	os.mkdir_all(base) or { assert false }
+	space_dir := os.join_path(base, 'a b')
+	os.mkdir_all(space_dir) or { assert false }
+	defer {
+		os.chdir(orig) or {}
+		os.rmdir_all(base) or {}
+	}
+	cd([os.join_path(base, 'a'), 'b']) or { assert false, err.msg(); return }
+	assert os.getwd() == space_dir
+}
+
 // ---------------------------------------------------------------------------
 // cd — tilde expansion
 // ---------------------------------------------------------------------------

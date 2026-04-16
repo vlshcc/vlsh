@@ -72,7 +72,8 @@ fn tab_complete(input string, loaded []plugins.Plugin) []string {
 				continue
 			}
 			suffix := if is_dir { '/' } else { '' }
-			results << cmd_prefix + full_path + suffix
+			quoted := utils.quote_shell_token_if_needed(full_path + suffix)
+			results << cmd_prefix + quoted
 		}
 	}
 

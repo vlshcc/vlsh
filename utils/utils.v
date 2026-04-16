@@ -351,6 +351,31 @@ pub fn expand_vars(s string) string {
 	return result.str()
 }
 
+// quote_shell_token_if_needed wraps s in quotes when it would otherwise be
+// split into multiple tokens by parse_args (spaces, tabs, newlines, or `|`).
+// Used by tab completion for paths like "foo bar". Prefers single quotes;
+// falls back to double quotes when s contains a single quote (may expand $ in
+// double-quoted segments — rare for filesystem paths).
+pub fn quote_shell_token_if_needed(s string) string {
+	if s == '' {
+		return s
+	}
+	mut needs := false
+	for ch in s.runes() {
+		if ch == ` ` || ch == `\t` || ch == `\n` || ch == `|` {
+			needs = true
+			break
+		}
+	}
+	if !needs {
+		return s
+	}
+	if !s.contains("'") {
+		return "'" + s + "'"
+	}
+	return '"' + s.replace('"', '\\"') + '"'
+}
+
 // parse_args splits a command string into tokens, respecting single and
 // double quoted strings (which are kept as one token with quotes stripped).
 // Unquoted boundaries use IFS (default space, tab, newline when IFS is unset).

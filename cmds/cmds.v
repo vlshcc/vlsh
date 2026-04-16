@@ -231,23 +231,40 @@ fn help_sub(cmd string) {
 	}
 }
 
+fn expand_cd_path(s string) string {
+	if s == '~' {
+		return os.home_dir()
+	}
+	if s.starts_with('~/') {
+		return os.home_dir() + s[1..]
+	}
+	return s
+}
+
 pub fn cd(args []string) ! {
 	current := os.getwd()
 	mut target := os.home_dir()
 	if args.len > 0 {
 		if args[0] == '-' {
+			if args.len > 1 {
+				return error('cd: too many arguments')
+			}
 			oldpwd := os.getenv('OLDPWD')
 			if oldpwd == '' {
 				return error('cd: OLDPWD not set')
 			}
 			target = oldpwd
 			println(target)
-		} else if args[0] == '~' {
-			target = os.home_dir()
-		} else if args[0].starts_with('~/') {
-			target = os.home_dir() + args[0][1..]
+		} else if args.len > 1 {
+			// Unquoted paths typed as multiple words (e.g. "cd .moonchild productions/")
+			// join to one directory path when it exists.
+			joined := args.join(' ')
+			target = expand_cd_path(joined)
+			if os.is_file(target) {
+				return error('${target}: not a directory')
+			}
 		} else {
-			target = args[0]
+			target = expand_cd_path(args[0])
 		}
 	}
 	if os.is_file(target) {

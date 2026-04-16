@@ -389,6 +389,18 @@ fn test_parse_args_pipe_without_space_after() {
 	assert result == ['ls', '-la', '|', 'more']
 }
 
+fn test_quote_shell_token_if_needed_plain_unchanged() {
+	assert quote_shell_token_if_needed('foo') == 'foo'
+}
+
+fn test_quote_shell_token_if_needed_wraps_spaces() {
+	assert quote_shell_token_if_needed('a b') == "'a b'"
+}
+
+fn test_quote_shell_token_if_needed_wraps_pipe() {
+	assert quote_shell_token_if_needed('a|b') == "'a|b'"
+}
+
 fn test_parse_args_env_assign_stays_one_token() {
 	// KEY=VALUE must remain a single token so is_env_assign can detect it
 	result := parse_args('FOO=bar cmd')

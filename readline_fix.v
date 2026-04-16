@@ -10,6 +10,8 @@ import encoding.utf8.east_asian
 import readline { Readline }
 import term
 import os
+import utils
+import exec
 
 // VlshReadline wraps the stdlib Readline and adds the extra fields needed for
 // Ctrl+R history search.  The underlying vlib Readline struct omits these on
@@ -138,16 +140,16 @@ fn vlsh_get_suggestion(r VlshReadline) []rune {
 		}
 		if is_cd {
 			// Skip history entries whose target directory no longer exists.
-			entry_parts := entry.trim_space().split(' ')
-			if entry_parts.len < 2 || entry_parts[1].len == 0 {
+			entry_parts := utils.parse_args(entry.trim_space())
+			if entry_parts.len < 2 || entry_parts[0] != 'cd' {
 				continue
 			}
-			path := entry_parts[1]
-			expanded := if path.starts_with('~') {
-				os.home_dir() + path[1..]
+			path := if entry_parts.len > 2 {
+				entry_parts[1..].join(' ')
 			} else {
-				path
+				entry_parts[1]
 			}
+			expanded := exec.expand_tilde(path)
 			if !os.is_dir(expanded) {
 				continue
 			}
