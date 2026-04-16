@@ -668,6 +668,33 @@ fn main_loop(input string, mut loaded_plugins []plugins.Plugin) int {
 		return 0
 	}
 
+	// Pipe chains must go through exec.prepare_task so tokens like `ls | more`
+	// are not passed to built-ins as literal arguments (e.g. ls would try to
+	// list a directory named "|").
+	tail := input_split[start..]
+	if tail.any(it == '|') {
+		local_cfg := cfg.get() or { cfg.Cfg{} }
+		mut t := exec.Task{
+			cmd: exec.Cmd_object{
+				cmd:     cmd
+				args:    args
+				aliases: local_cfg.aliases
+			}
+		}
+		code := t.prepare_task() or {
+			utils.fail(err.msg())
+			for key in env_keys {
+				os.unsetenv(key)
+			}
+			return 1
+		}
+		plugins.run_output_hooks(loaded_plugins, input, code, t.last_output)
+		for key in env_keys {
+			os.unsetenv(key)
+		}
+		return code
+	}
+
 	code := dispatch_cmd(cmd, args, mut loaded_plugins, input)
 	for key in env_keys {
 		os.unsetenv(key)
