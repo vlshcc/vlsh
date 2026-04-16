@@ -43,6 +43,17 @@ fn test_norm_pipe_empty_string() {
 	assert norm_pipe('') == ''
 }
 
+fn test_norm_pipe_does_not_split_pipe_inside_sed_single_quotes() {
+	// Regression: sed s|a|b|g must not become extra pipe stages.
+	line := "find . -type f -print0 | xargs -0 sed -i 's|https://ti-l\\.de|http://localhost:8000|g'"
+	assert norm_pipe(line) == line.replace(' | ', '|')
+}
+
+fn test_norm_pipe_splits_real_pipe_when_sed_uses_alternate_delimiter() {
+	line := "find . -type f -print0 | xargs -0 sed -i 's|https://x|http://y|g'"
+	assert norm_pipe(line) == 'find . -type f -print0|xargs -0 sed -i \'s|https://x|http://y|g\''
+}
+
 // ---------------------------------------------------------------------------
 // requote_args
 // ---------------------------------------------------------------------------
@@ -69,6 +80,14 @@ fn test_requote_args_mixed() {
 
 fn test_requote_args_all_with_spaces() {
 	assert requote_args(['a b', 'c d']) == '"a b" "c d"'
+}
+
+fn test_requote_args_pipe_char_gets_single_quoted() {
+	assert requote_args(['s|a|b|g']) == "'s|a|b|g'"
+}
+
+fn test_requote_args_standalone_pipe_token_not_quoted() {
+	assert requote_args(['.', '-print0', '|', 'wc']) == '. -print0 | wc'
 }
 
 // ---------------------------------------------------------------------------

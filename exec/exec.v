@@ -1,6 +1,7 @@
 module exec
 
 import os
+import strings
 
 import utils
 
@@ -89,13 +90,56 @@ pub fn expand_tilde(s string) string {
 fn requote_args(args []string) string {
 	mut parts := []string{}
 	for arg in args {
+		// parse_args emits a standalone '|' token between pipe stages; never quote it
+		// or split_pipe_segments will not see a real pipe boundary.
+		if arg == '|' {
+			parts << '|'
+			continue
+		}
 		if arg.contains(' ') {
 			parts << '"' + arg + '"'
+		} else if arg.contains('|') && !arg.contains("'") {
+			// So parse_pipe's join does not expose | to naive splitting; see split_pipe_segments.
+			parts << "'" + arg + "'"
+		} else if arg.contains('|') {
+			parts << '"' + arg.replace('"', '\\"') + '"'
 		} else {
 			parts << arg
 		}
 	}
 	return parts.join(' ')
+}
+
+// split_pipe_segments splits on | only outside single- and double-quoted regions
+// (same quote rules as utils.parse_args). Used instead of string.split('|') so
+// e.g. sed 's|a|b|g' does not create extra pipe stages.
+fn split_pipe_segments(s string) []string {
+	mut segments := []string{}
+	mut current := strings.new_builder(s.len)
+	mut in_single := false
+	mut in_double := false
+	for ch in s.runes() {
+		if ch == `'` && !in_double {
+			in_single = !in_single
+			current.write_rune(ch)
+		} else if ch == `"` && !in_single {
+			in_double = !in_double
+			current.write_rune(ch)
+		} else if ch == `|` && !in_single && !in_double {
+			seg := current.str().trim_space()
+			if seg != '' {
+				segments << seg
+			}
+			current = strings.new_builder(s.len)
+		} else {
+			current.write_rune(ch)
+		}
+	}
+	seg := current.str().trim_space()
+	if seg != '' {
+		segments << seg
+	}
+	return segments
 }
 
 fn (mut t Task) parse_pipe() {
@@ -105,17 +149,7 @@ fn (mut t Task) parse_pipe() {
 }
 
 fn norm_pipe(i string) string {
-	mut r := []string{}
-	m := i.split('|')
-	for s in m {
-		mut p := s // do trim_space() on s without it being mut?
-		p = p.trim_space()
-		if p != '' {
-			r << p
-		}
-	}
-
-	return r.join('|')
+	return split_pipe_segments(i).join('|')
 }
 
 // parse_redirect scans a token list for >, >>, <, and 2>&1.  Returns the cleaned
@@ -161,7 +195,7 @@ fn parse_redirect(tokens []string) ([]string, string, bool, string, bool) {
 }
 
 fn (mut t Task) walk_pipes() {
-	split_pipe_string := t.pipe_string.split('|')
+	split_pipe_string := split_pipe_segments(t.pipe_string)
 	len := split_pipe_string.len
 	for index, pipe_string in split_pipe_string {
 		split_pipe := utils.parse_args(pipe_string.trim_space())
