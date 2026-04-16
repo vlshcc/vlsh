@@ -378,10 +378,15 @@ fn test_parse_args_only_spaces() {
 	assert parse_args('   ') == []string{}
 }
 
-fn test_parse_args_pipe_character_is_not_special() {
-	// parse_args is a tokenizer; pipe handling is exec's responsibility
+fn test_parse_args_pipe_character_is_token_boundary() {
 	result := parse_args('cat file | wc')
 	assert result == ['cat', 'file', '|', 'wc']
+}
+
+fn test_parse_args_pipe_without_space_after() {
+	// Like POSIX: | starts the next command even when glued (e.g. |more).
+	result := parse_args('ls -la |more')
+	assert result == ['ls', '-la', '|', 'more']
 }
 
 fn test_parse_args_env_assign_stays_one_token() {

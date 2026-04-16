@@ -354,11 +354,12 @@ pub fn expand_vars(s string) string {
 // parse_args splits a command string into tokens, respecting single and
 // double quoted strings (which are kept as one token with quotes stripped).
 // Unquoted boundaries use IFS (default space, tab, newline when IFS is unset).
-// When IFS contains only whitespace, consecutive delimiters collapse; otherwise
-// each delimiter can produce an empty field. Variable references ($VAR, $?, $0,
-// etc.) are expanded in each token, then unquoted tokens that contain * or ?
-// are glob-expanded against the filesystem; if no files match the pattern is
-// passed through unchanged.
+// A lone `|` outside quotes is always its own token (so `cmd|more` and `cmd |more`
+// both pipe like POSIX shells). When IFS contains only whitespace, consecutive
+// delimiters collapse; otherwise each delimiter can produce an empty field.
+// Variable references ($VAR, $?, $0, etc.) are expanded in each token, then
+// unquoted tokens that contain * or ? are glob-expanded against the filesystem;
+// if no files match the pattern is passed through unchanged.
 pub fn parse_args(input string) []string {
 	ifs := ifs_chars_for_split()
 	collapse := ifs_whitespace_only(ifs)
@@ -367,15 +368,27 @@ pub fn parse_args(input string) []string {
 	mut in_single := false
 	mut in_double := false
 	mut has_quoted := false // any part of the current token was inside quotes
-	// Iterate runes, not bytes: `for ch in string` in V is byte-wise; UTF-8
-	// would be split (e.g. ä → Ã¤) and paths like Hämtningar would break cd.
-	for ch in input.runes() {
+	// Iterate runes with index so `|` can be a token boundary without spaces.
+	runes := input.runes()
+	mut i := 0
+	for i < runes.len {
+		ch := runes[i]
 		if ch == `'` && !in_double {
 			in_single = !in_single
 			has_quoted = true
+			i++
 		} else if ch == `"` && !in_single {
 			in_double = !in_double
 			has_quoted = true
+			i++
+		} else if !in_single && !in_double && ch == `|` {
+			if current.len > 0 {
+				args << glob_expand(expand_vars(current.str()), has_quoted)
+				current = strings.new_builder(32)
+				has_quoted = false
+			}
+			args << '|'
+			i++
 		} else if !in_single && !in_double && is_ifs_rune(ch, ifs) {
 			if collapse {
 				if current.len > 0 {
@@ -388,8 +401,10 @@ pub fn parse_args(input string) []string {
 				current = strings.new_builder(32)
 				has_quoted = false
 			}
+			i++
 		} else {
 			current.write_rune(ch)
+			i++
 		}
 	}
 	if current.len > 0 {
