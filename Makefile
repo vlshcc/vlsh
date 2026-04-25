@@ -7,27 +7,33 @@ V_GIT := $(if $(GIT_SHA),-d git_sha=$(GIT_SHA))
 # Default for `make fuzz` (override: make fuzz FUZZ_ITER=200000).
 FUZZ_ITER ?= 50000
 
-.PHONY: all build test check fuzz clean install dist dist-build dist-install openbsd help
+.PHONY: all build test check fuzz clean install dist dist-deb dist-rpm dist-linux dist-freebsd dist-dragonfly dist-install openbsd help
 
 all: build
 
 help:
 	@echo "vlsh — Makefile targets"
 	@echo ""
-	@echo "  make, make build     Compile the shell; embeds git short SHA in the version (1.2-<sha>)."
-	@echo "  make test, make check   Run the test suite (v test .)."
-	@echo "  make fuzz               Run tools/fuzz_shell.v (random input stress; FUZZ_ITER=$(FUZZ_ITER))."
-	@echo "  make clean           Remove the vlsh binary from the build tree."
-	@echo "  make install         Install vlsh to \$$(DESTDIR)\$$(PREFIX)/bin (default PREFIX=$(PREFIX))."
-	@echo "                       Depends on build; use sudo if needed (sudo make install)."
-	@echo "  make dist            Same as make dist-build — run pkg/dist.sh to fill builds/"
-	@echo "                       (Linux .deb/.rpm, FreeBSD/DragonFly cross-bins; NetBSD/OpenBSD when native)."
-	@echo "  make dist-install    Install the newest matching package/binary from builds/ for this OS"
-	@echo "                       (pkg/dist.sh install; sudo when not root)."
-	@echo "  make openbsd         Native OpenBSD build artifact (pkg/build.sh --openbsd; on OpenBSD only)."
+	@echo "  make, make build         Compile the shell (embeds git short SHA in version)."
+	@echo "  make test, make check   Run the test suite."
+	@echo "  make clean           Remove vlsh binary."
+	@echo "  make install        Install vlsh to \$$(PREFIX)/bin."
 	@echo ""
-	@echo "Variables:  V=/path/to/v   PREFIX=$(PREFIX)   DESTDIR=   FUZZ_ITER=$(FUZZ_ITER)   FUZZ_SEED="
-	@echo "More detail: README.md (Build and run, Distribution builds)."
+	@echo "  Distribution builds (use pkg/dist.sh directly or make with DIST_FLAGS):"
+	@echo "    make dist                 Build all targets (default)."
+	@echo "    make dist-deb             Build only Linux .deb."
+	@echo "    make dist-rpm            Build only Linux .rpm."
+	@echo "    make dist-linux          Build Linux .deb + .rpm + standalone."
+	@echo "    make dist-freebsd        Build FreeBSD cross-compiled binary."
+	@echo "    make dist-dragonfly       Build DragonFlyBSD cross-compiled binary."
+	@echo "    make dist-install        Install from builds/."
+	@echo ""
+	@echo "  Examples:"
+	@echo "    make dist          # all"
+	@echo "    make dist-deb     # just .deb"
+	@echo "    make dist-linux   # Linux packages"
+	@echo ""
+	@echo "Variables:  V=  PREFIX=  DESTDIR=  FUZZ_ITER=  DIST_FLAGS="
 	@echo ""
 
 build:
@@ -44,18 +50,30 @@ fuzz:
 clean:
 	rm -f vlsh tools/fuzz_shell
 
-# Install the locally built binary (run with sufficient privileges, e.g. sudo make install).
 install: build
 	install -m 755 vlsh $(DESTDIR)$(PREFIX)/bin/vlsh
 
-# Build distribution artifacts under builds/ (Linux .deb/.rpm + binaries; BSD cross-builds where tools exist).
-dist dist-build:
+# Distribution builds - delegate to pkg/dist.sh with appropriate flags
+dist dist-all:
 	sh ./pkg/dist.sh build
 
-# Install the newest matching package/binary from builds/ for this OS (see pkg/dist.sh).
+dist-deb:
+	sh ./pkg/dist.sh build --deb
+
+dist-rpm:
+	sh ./pkg/dist.sh build --rpm
+
+dist-linux:
+	sh ./pkg/dist.sh build --linux
+
+dist-freebsd:
+	sh ./pkg/dist.sh build --freebsd
+
+dist-dragonfly:
+	sh ./pkg/dist.sh build --dragonfly
+
 dist-install:
 	sh ./pkg/dist.sh install
 
-# Native OpenBSD binary under builds/ (no-op on other hosts — see pkg/build.sh --openbsd).
 openbsd:
 	sh ./pkg/build.sh --openbsd
