@@ -2,7 +2,7 @@ module plugins
 
 import os
 import net.http
-import json2
+import x.json2
 
 fn find_v_compiler() string {
 	for dir in os.getenv('PATH').split(':').filter(it.len > 0) {

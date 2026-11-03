@@ -33,7 +33,7 @@ The seed is printed for reproduction. This harness stresses parsing and history
 expansion; it does not execute the generated commands. Add a small regression
 test when a crash or incorrect behavior is found.
 
-GitHub Actions builds V 0.5.2 on Linux, runs all test layers, runs a fixed-seed
+GitHub Actions installs the official V 0.5.2 Linux toolchain, runs all test layers, runs a fixed-seed
 parser stress test, and builds the shell. BSD packaging and full-screen programs
 inside mux still require native/manual validation. The shell implements the
 subset recorded in [posix-inventory.md](posix-inventory.md); this suite does not

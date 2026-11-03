@@ -10,11 +10,12 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - name: Build V 0.5.2
+      - name: Install V 0.5.2
         run: |
-          git clone --depth 1 --branch 0.5.2 https://github.com/vlang/v.git "$RUNNER_TEMP/v"
-          make -C "$RUNNER_TEMP/v"
-          echo "$RUNNER_TEMP/v" >> "$GITHUB_PATH"
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/v_linux.zip" https://github.com/vlang/v/releases/download/0.5.2/v_linux.zip
+          unzip -q "$RUNNER_TEMP/v_linux.zip" -d "$RUNNER_TEMP/v-toolchain"
+          "$RUNNER_TEMP/v-toolchain/v/v" version
+          echo "$RUNNER_TEMP/v-toolchain/v" >> "$GITHUB_PATH"
       - name: Unit and shell integration tests
         run: make test
       - name: Deterministic parser stress test
