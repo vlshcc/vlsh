@@ -9,3 +9,7 @@ builds/
 *.o
 *.so
 *.dylib
+
+# Test artifacts
+.vlsh-test
+__pycache__/

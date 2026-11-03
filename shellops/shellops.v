@@ -13,16 +13,30 @@ pub:
 
 // split_commands splits an input string on &&, ||, and ; operators while
 // respecting single and double quotes.  A lone | is left in the buffer
-// (it is a pipe, handled later by walk_pipes).
+// (it is a pipe, handled later by exec).
 pub fn split_commands(input string) []ChainPart {
-	mut parts     := []ChainPart{}
-	mut current   := strings.new_builder(64)
+	mut parts := []ChainPart{}
+	mut current := strings.new_builder(64)
 	mut in_single := false
 	mut in_double := false
-	mut cur_op    := ''
-	mut i         := 0
+	mut cur_op := ''
+	mut depth := 0
+	mut i := 0
 	for i < input.len {
 		ch := input[i]
+		if ch == `\\` && !in_single && i + 1 < input.len {
+			current.write_u8(ch)
+			current.write_u8(input[i + 1])
+			i += 2
+			continue
+		}
+		if !in_single && ch == `$` && i + 1 < input.len && input[i + 1] == `{` { depth++ }
+		if depth > 0 {
+			current.write_u8(ch)
+			if ch == `}` { depth-- }
+			i++
+			continue
+		}
 		if ch == `'` && !in_double {
 			in_single = !in_single
 			current.write_u8(ch)
@@ -64,53 +78,72 @@ pub fn split_commands(input string) []ChainPart {
 	return parts
 }
 
-// builtin_redirect strips > and >> redirection tokens from a built-in
-// command's argument list, returning (cleanArgs, targetFile, appendMode).
-pub fn builtin_redirect(args []string) ([]string, string, bool) {
-	mut out     := []string{}
-	mut rfile   := ''
-	mut rappend := false
-	mut skip    := false
-	for i, tok in args {
-		if skip { skip = false; continue }
-		if tok == '>>' {
-			rappend = true
-			if i + 1 < args.len {
-				rfile = if args[i + 1].starts_with('~/') {
-					os.home_dir() + args[i + 1][1..]
-				} else if args[i + 1] == '~' {
-					os.home_dir()
-				} else {
-					args[i + 1]
-				}
-				skip = true
-			}
-		} else if tok == '>' {
-			rappend = false
-			if i + 1 < args.len {
-				rfile = if args[i + 1].starts_with('~/') {
-					os.home_dir() + args[i + 1][1..]
-				} else if args[i + 1] == '~' {
-					os.home_dir()
-				} else {
-					args[i + 1]
-				}
-				skip = true
-			}
-		} else {
-			out << tok
-		}
-	}
-	return out, rfile, rappend
-}
-
 // write_redirect writes content to a file (truncate or append mode).
 pub fn write_redirect(path string, content string, append_mode bool) ! {
 	flag := if append_mode { 'a' } else { 'w' }
 	mut f := os.open_file(path, flag) or {
 		return error('cannot open ${path}: ${err.msg()}')
 	}
-	f.write_string(content) or {}
-	f.close()
+	defer { f.close() }
+	f.write_string(content)!
 }
 
+// Validate before dispatch so malformed lists never execute a partial command.
+pub fn validate_command_line(input string) ! {
+	mut quote := u8(0)
+	mut depth := 0
+	mut word := false
+	mut last_op := ''
+	mut i := 0
+	for i < input.len {
+		ch := input[i]
+		if ch == `\\` && quote != `'` {
+			if i + 1 >= input.len {
+				return error('syntax error: trailing backslash')
+			}
+			i += 2
+			word = true
+			continue
+		}
+		if quote != 0 {
+			if ch == quote {
+				quote = 0
+			}
+			i++
+			continue
+		}
+		if ch == `'` || ch == `"` {
+			quote = ch
+			word = true
+			i++
+			continue
+		}
+		if ch == `$` && i + 1 < input.len && input[i + 1] == `{` { depth++ }
+		if depth > 0 {
+			if ch == `}` { depth-- }
+			word = true
+			i++
+			continue
+		}
+		if ch == `;` || ch == `|` || (ch == `&` && i + 1 < input.len && input[i + 1] == `&`) {
+			if !word {
+				return error('syntax error: missing command')
+			}
+			last_op = ch.ascii_str()
+			if i + 1 < input.len && input[i + 1] == ch && ch != `;` {
+				last_op += ch.ascii_str()
+				i++
+			}
+			word = false
+		} else if ch != ` ` && ch != `\t` && ch != `\n` && ch != `\r` {
+			word = true
+		}
+		i++
+	}
+	if quote != 0 || depth != 0 {
+		return error('syntax error: unterminated quote or parameter expansion')
+	}
+	if !word && last_op != '' && last_op != ';' {
+		return error('syntax error: missing command')
+	}
+}

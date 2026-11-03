@@ -23,7 +23,7 @@ Legend: **yes** = supported for typical use, **partial** = gaps/edge cases, **no
 | Field splitting on `IFS` (space/tab/newline) | partial | Default `IFS` (space/tab/newline) when unset; custom non-whitespace `IFS` splits with empty fields; empty `IFS` in env still uses default whitespace for lexer (POSIX nuance) |
 | Single quotes `'…'` | yes | Literal; see `utils.parse_args` tests |
 | Double quotes `"…"` | yes | Literal except `$` expansion applied in `expand_vars` |
-| Backslash escapes | partial | Not a full POSIX escape table in all contexts |
+| Backslash escapes | partial | Escaped quotes, spaces, and operators are preserved; double quotes only remove backslashes before `$`, `"`, `\\`, or newline |
 
 ## Parameter expansion
 
@@ -48,17 +48,18 @@ Legend: **yes** = supported for typical use, **partial** = gaps/edge cases, **no
 
 | Feature | Status | Notes |
 |--------|--------|--------|
-| `&&` `\|\|` `;` lists | yes | `shellops.split_commands` + `main_loop` |
-| Pipelines `\|` | yes | Handled in execution path (`exec` / `walk_pipes`) |
+| `&&` `\|\|` `;` lists | yes | `shellops.split_commands` + `main_loop`; malformed lists are rejected before dispatch |
+| Pipelines `\|` | yes | Concurrent OS pipes in `exec`; status is the final stage’s exit code |
 | `if` / `for` / `while` / `case` / functions | no | |
 | Subshells `( )` | no | |
-| Background `&` | partial / no | Depends on existing exec support |
+| Background `&` | no | Job control is not implemented |
 
 ## Redirections
 
 | Feature | Status | Notes |
 |--------|--------|--------|
-| `>`, `>>`, `<` | partial | Supported where documented; process substitution `<( )` **no** |
+| `>`, `>>`, `<` | partial | External commands use file descriptors, including empty input files; `echo` supports output redirection. Multiple redirections are collapsed to the last target per stream. Process substitution `<( )` **no** |
+| `2>&1` | partial | Merges stderr into stdout at the OS descriptor level; order relative to output redirections is not yet modeled |
 | Here-documents `<<` | no | |
 
 ## Builtins (common POSIX)
@@ -75,11 +76,12 @@ Legend: **yes** = supported for typical use, **partial** = gaps/edge cases, **no
 
 ## Testing
 
-Regression coverage lives in `v test .`, especially:
+Run `make test` for module tests plus shell integration tests. See [testing.md](testing.md) for isolation, timeouts, CI, and remaining manual checks. Module coverage includes:
 
 - `utils/utils_test.v` — `expand_vars`, `parse_args`, `is_env_assign`, glob
 - `shellops/shellops_test.v` — command lists and operators
-- `exec/exec_test.v` — external command behaviour
+- `exec/exec_test.v` — pipeline parsing and executable lookup
+- `tests/test_shell.py` — execution, streaming I/O, environment restoration, and terminal behavior
 
 When adding a POSIX-shaped feature, add a **small test** next to the relevant module.
 

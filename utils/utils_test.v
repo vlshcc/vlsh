@@ -370,8 +370,8 @@ fn test_parse_args_multiple_quoted_args() {
 
 fn test_parse_args_empty_quoted_string() {
 	result := parse_args('echo ""')
-	// empty quoted token is discarded (current.len == 0 after closing quote)
-	assert result == ['echo']
+	// Empty quoted words still occupy an argument position.
+	assert result == ['echo', '']
 }
 
 fn test_parse_args_only_spaces() {
@@ -519,4 +519,33 @@ fn test_glob_expand_with_subdirectory_pattern() {
 	result := glob_expand('${dir}/inner/*.txt', false)
 	assert result.len == 1
 	assert result[0].contains('foo.txt')
+}
+
+fn test_parse_args_preserves_empty_quoted_words() {
+	assert parse_args('printf \'\' x ""') == ['printf', '', 'x', '']
+}
+
+fn test_parse_args_single_quotes_are_literal_in_mixed_word() {
+	os.setenv('VLSH_QUOTE', 'expanded', true)
+	defer { os.unsetenv('VLSH_QUOTE') }
+	assert parse_args('echo \'\$VLSH_QUOTE\'"\$VLSH_QUOTE"') == ['echo', '$VLSH_QUOTE' + 'expanded']
+}
+
+fn test_parse_tokens_keeps_operator_provenance() {
+	tokens := parse_tokens("echo '|' | cat>out")
+	assert tokens.map(it.text) == ['echo', '|', '|', 'cat', '>', 'out']
+	assert !tokens[1].operator
+	assert tokens[2].operator
+	assert tokens[4].operator
+}
+
+fn test_parse_args_keeps_braced_expansion_with_spaces() {
+	os.unsetenv('VLSH_DEFAULT')
+	assert parse_args('echo \${VLSH_DEFAULT:-hello world}') == ['echo', 'hello world']
+}
+
+fn test_glob_question_handles_partial_utf8_without_panic() {
+	assert !glob_match('?', [u8(0xc3)].bytestr())
+	assert glob_match('?', 'å')
+	assert remove_shortest_prefix('åbc', '?') == 'bc'
 }

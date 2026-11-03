@@ -1,3 +1,33 @@
+## Unreleased — 2026-11-03
+
+### Shell stability
+
+- Run pipeline stages concurrently with OS pipes; preserve empty input, stderr,
+  final-stage exit status, and signal handling without buffering between stages.
+- Parse command words once, retaining quoted operators, empty arguments, escapes,
+  and literal single-quoted text. Reject incomplete command lists before dispatch.
+- Restore temporary environment overrides, retain assignment-only commands, bound
+  alias recursion, and resolve executable files rather than directories.
+- Add `-c`, script-file and stdin execution, plus `--help` and `--version`.
+- Fix missing-argument crashes in `ocp`, builtin error statuses, and compiler
+  compatibility in readline, signal handling, and plugin JSON decoding.
+
+### Installation and packaging
+
+- Install the already-built binary without requiring V in sudo's PATH; register
+  the configured path in `/etc/shells` once. Staging skips registration.
+- Honor selected distribution formats, `DIST_FLAGS`, and compiler overrides;
+  preserve only matching artifacts without renaming existing archives again.
+- Use portable RPM directory creation and private, cleaned staging directories;
+  normalize Debian package directory permissions.
+
+### Tests and documentation
+
+- Add shell, installation, and packaging integration suites to `make test`, with
+  isolated fixtures and subprocess timeouts. Add Linux CI using V 0.5.2.
+- Document tested behavior, package/source differences, known POSIX gaps, and
+  outstanding native BSD and mux validation. Move platform notes under `docs/`.
+
 ## 2026-04-11 — version 1.2.0
 
 ### Release summary (since [v1.1.7.1](https://github.com/vlshcc/vlsh/releases/tag/v1.1.7.1))

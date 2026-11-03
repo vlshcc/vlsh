@@ -1,6 +1,6 @@
 #!/bin/sh
 # pkg/build.sh — build vlsh binary, .deb, and .rpm packages
-# Builds whatever package formats the current system supports.
+# Builds selected formats; the default builds formats supported by local tools.
 # Requires: v (V compiler)
 # Optional: dpkg-deb (for .deb), rpmbuild (for .rpm)
 # Cross-compilation: --freebsd / --dragonfly (requires clang + lld)
@@ -20,24 +20,56 @@ has()  { command -v "$1" >/dev/null 2>&1; }
 # Parse arguments
 # ---------------------------------------------------------------------------
 TARGET_OS="linux"
+BUILD_DEB=0
+BUILD_RPM=0
+BUILD_STANDALONE=0
+LINUX_ALL=0
+LINUX_SELECTED=0
+EXPLICIT_DEB=0
+EXPLICIT_RPM=0
+if [ "$#" -eq 0 ]; then set -- --linux; fi
 for arg in "$@"; do
     case "$arg" in
-        --freebsd)    TARGET_OS="freebsd" ;;
-        --dragonfly)  TARGET_OS="dragonfly" ;;
-        --netbsd)     TARGET_OS="netbsd" ;;
-        --openbsd)    TARGET_OS="openbsd" ;;
+        --deb) BUILD_DEB=1; LINUX_SELECTED=1; EXPLICIT_DEB=1 ;;
+        --rpm) BUILD_RPM=1; LINUX_SELECTED=1; EXPLICIT_RPM=1 ;;
+        --standalone) BUILD_STANDALONE=1; LINUX_SELECTED=1 ;;
+        --linux) LINUX_ALL=1; LINUX_SELECTED=1 ;;
+        --freebsd|--dragonfly|--netbsd|--openbsd)
+            new_target=${arg#--}
+            if [ "$TARGET_OS" != linux ] && [ "$TARGET_OS" != "$new_target" ]; then
+                die "choose one OS target per pkg/build.sh invocation"
+            fi
+            TARGET_OS=$new_target
+            ;;
         --help|-h)
-            echo "Usage: $0 [--freebsd] [--dragonfly] [--netbsd] [--openbsd]"
+            echo "Usage: $0 [--linux|--deb|--rpm|--standalone|--freebsd|--dragonfly|--netbsd|--openbsd]"
+            echo "  --linux      Build available Linux packages plus a standalone binary (default)"
+            echo "  --deb        Build only .deb (requires dpkg-deb)"
+            echo "  --rpm        Build only .rpm (requires rpmbuild)"
+            echo "  --standalone Build only a Linux binary"
             echo "  --freebsd    Cross-compile for FreeBSD (requires clang + lld)"
             echo "  --dragonfly  Cross-compile for DragonFlyBSD (requires clang + lld)"
             echo "  --netbsd     Native build on NetBSD only (skipped on other hosts)"
             echo "  --openbsd    Native build on OpenBSD only (skipped on other hosts)"
             exit 0
             ;;
+        *) die "unknown build option: $arg" ;;
     esac
 done
-
-need v
+if [ "$TARGET_OS" != linux ] && [ "$LINUX_SELECTED" -eq 1 ]; then
+    die "Linux package options cannot be combined with --$TARGET_OS"
+fi
+V=${V:-v}
+need "$V"
+if [ "$TARGET_OS" = linux ]; then
+    if [ "$EXPLICIT_DEB" -eq 1 ]; then need dpkg-deb; fi
+    if [ "$EXPLICIT_RPM" -eq 1 ]; then need rpmbuild; fi
+    if [ "$LINUX_ALL" -eq 1 ]; then
+        if has dpkg-deb; then BUILD_DEB=1; fi
+        if has rpmbuild; then BUILD_RPM=1; fi
+        BUILD_STANDALONE=1
+    fi
+fi
 
 # ---------------------------------------------------------------------------
 # Metadata
@@ -99,7 +131,7 @@ if [ "$TARGET_OS" = "freebsd" ]; then
     # Include paths match cc_freebsd_cross() in V's cc.v (include + usr/include).
     rm -rf "$HOME/.vmodules/.cache"
     CFLAGS="--target=x86_64-unknown-freebsd14.0 --sysroot=${FBSD_SYSROOT} -I${FBSD_SYSROOT}/include -I${FBSD_SYSROOT}/usr/include" \
-        v -os freebsd -prod $V_GIT_SHA_FLAG .
+        "$V" -os freebsd -prod $V_GIT_SHA_FLAG .
 
     mkdir -p builds
     cp vlsh "builds/vlsh_${VERSION}_${DEB_ARCH}_freebsd"
@@ -159,7 +191,7 @@ if [ "$TARGET_OS" = "dragonfly" ]; then
     ln -sf "$(command -v clang)" "$CCWRAP/cc"
     trap "rm -rf '$CCWRAP'" EXIT
 
-    V_ROOT=$(dirname "$(readlink -f "$(command -v v)")")
+    V_ROOT=$(dirname "$(readlink -f "$(command -v "$V")")")
     V_GC_INC="${V_ROOT}/thirdparty/libgc/include"
 
     # V links -lgc against the system library, but DragonFlyBSD's base
@@ -185,7 +217,7 @@ if [ "$TARGET_OS" = "dragonfly" ]; then
     # target linker.  Instead we pass equivalent optimization flags manually.
     CFLAGS="--target=x86_64-unknown-dragonfly --sysroot=${DFBSD_SYSROOT} -I${DFBSD_SYSROOT}/usr/include -I${V_GC_INC} -fuse-ld=lld -O2 -DNDEBUG" \
     LDFLAGS="--target=x86_64-unknown-dragonfly --sysroot=${DFBSD_SYSROOT} -fuse-ld=lld" \
-        v -cc clang -os dragonfly $V_GIT_SHA_FLAG .
+        "$V" -cc clang -os dragonfly $V_GIT_SHA_FLAG .
 
     mkdir -p builds
     cp vlsh "builds/vlsh_${VERSION}_${DEB_ARCH}_dragonfly"
@@ -205,7 +237,7 @@ if [ "$TARGET_OS" = "netbsd" ]; then
         exit 0
     fi
     echo "==> Native NetBSD build"
-    v -prod $V_GIT_SHA_FLAG .
+    "$V" -prod $V_GIT_SHA_FLAG .
     mkdir -p builds
     cp vlsh "builds/vlsh_${VERSION}_${DEB_ARCH}_netbsd"
     echo ""
@@ -223,7 +255,7 @@ if [ "$TARGET_OS" = "openbsd" ]; then
         exit 0
     fi
     echo "==> Native OpenBSD build"
-    v -prod $V_GIT_SHA_FLAG .
+    "$V" -prod $V_GIT_SHA_FLAG .
     mkdir -p builds
     cp vlsh "builds/vlsh_${VERSION}_${DEB_ARCH}_openbsd"
     echo ""
@@ -235,7 +267,7 @@ fi
 # ---------------------------------------------------------------------------
 # Ensure pkg/deb template files exist (recreate if missing)
 # ---------------------------------------------------------------------------
-if [ ! -f pkg/deb/control.in ] || [ ! -f pkg/deb/postinst ] || [ ! -f pkg/deb/prerm ]; then
+if [ "$BUILD_DEB" -eq 1 ] && { [ ! -f pkg/deb/control.in ] || [ ! -f pkg/deb/postinst ] || [ ! -f pkg/deb/prerm ]; }; then
     echo "==> Recreating missing pkg/deb files"
     mkdir -p pkg/deb
 
@@ -258,7 +290,7 @@ Description: V Lang SHell — a shell written in V
   - AND-chain execution (cmd1 && cmd2)
   - Tilde expansion (~ and ~/path)
   - Per-command environment variable prefix (VAR=val cmd)
-  - Session environment variables (venv add/rm/list)
+  - Session environment variables (export / unset)
   - Shared command history across sessions (last 5000 entries)
   - Tab completion for files and directories
   - Aliases (defined in ~/.vlshrc or managed at runtime)
@@ -303,7 +335,7 @@ fi
 # ---------------------------------------------------------------------------
 # Ensure pkg/rpm template files exist (recreate if missing)
 # ---------------------------------------------------------------------------
-if [ ! -f pkg/rpm/vlsh.spec.in ]; then
+if [ "$BUILD_RPM" -eq 1 ] && [ ! -f pkg/rpm/vlsh.spec.in ]; then
     echo "==> Recreating missing pkg/rpm files"
     mkdir -p pkg/rpm
 
@@ -324,7 +356,7 @@ Features:
 - AND-chain execution (cmd1 && cmd2)
 - Tilde expansion (~ and ~/path)
 - Per-command environment variable prefix (VAR=val cmd)
-- Session environment variables (venv add/rm/list)
+- Session environment variables (export / unset)
 - Shared command history across sessions (last 5000 entries)
 - Tab completion for files and directories
 - Aliases (defined in ~/.vlshrc or managed at runtime)
@@ -356,18 +388,29 @@ fi
 # ---------------------------------------------------------------------------
 # Compile
 # ---------------------------------------------------------------------------
+# Staging directories are private to this invocation and cleaned on failure too.
+STAGE=
+RPMTOP=
+cleanup() {
+    if [ -n "$STAGE" ]; then rm -rf "$STAGE"; fi
+    if [ -n "$RPMTOP" ]; then rm -rf "$RPMTOP"; fi
+}
+trap cleanup EXIT
+trap 'exit 1' HUP INT TERM
+
 echo "==> Compiling"
-v -prod $V_GIT_SHA_FLAG .
+"$V" -prod $V_GIT_SHA_FLAG .
 
 # ---------------------------------------------------------------------------
 # Build .deb (if tools available)
 # ---------------------------------------------------------------------------
-if has dpkg-deb; then
+if [ "$BUILD_DEB" -eq 1 ]; then
     echo "==> Assembling .deb staging tree"
-    STAGE="${PKG_NAME}"
-    rm -rf "$STAGE"
+    STAGE=$(mktemp -d)
     mkdir -p "${STAGE}/DEBIAN"
     mkdir -p "${STAGE}/usr/bin"
+    # mktemp creates mode 700; package directories must be traversable after install.
+    chmod 755 "$STAGE" "$STAGE/DEBIAN" "$STAGE/usr" "$STAGE/usr/bin"
 
     cp vlsh "${STAGE}/usr/bin/vlsh"
     chmod 755 "${STAGE}/usr/bin/vlsh"
@@ -386,24 +429,26 @@ if has dpkg-deb; then
     chmod 755 "${STAGE}/DEBIAN/prerm"
 
     echo "==> Building ${PKG_NAME}.deb"
-    dpkg-deb --build --root-owner-group "$STAGE"
-    rm -rf "$STAGE"
-
     mkdir -p builds
-    mv "${PKG_NAME}.deb" builds/
+    dpkg-deb --build --root-owner-group "$STAGE" "builds/${PKG_NAME}.deb"
+    rm -rf "$STAGE"
+    STAGE=
     BUILT_DEB=1
 else
     BUILT_DEB=0
-    echo "==> Skipping .deb (dpkg-deb not found — install the 'dpkg' package to enable)"
+    if [ "$LINUX_ALL" -eq 1 ]; then
+        echo "==> Skipping .deb (dpkg-deb not found — install the 'dpkg' package to enable)"
+    fi
 fi
 
 # ---------------------------------------------------------------------------
 # Build .rpm (if tools available)
 # ---------------------------------------------------------------------------
-if has rpmbuild; then
+if [ "$BUILD_RPM" -eq 1 ]; then
     echo "==> Building .rpm"
     RPMTOP=$(mktemp -d)
-    mkdir -p "$RPMTOP"/{SPECS,SOURCES,BUILD,RPMS,SRPMS}
+    mkdir -p "$RPMTOP/SPECS" "$RPMTOP/SOURCES" "$RPMTOP/BUILD" \
+        "$RPMTOP/RPMS" "$RPMTOP/SRPMS" "$RPMTOP/BUILDROOT"
 
     cp vlsh "$RPMTOP/SOURCES/"
 
@@ -421,17 +466,22 @@ if has rpmbuild; then
     fi
 
     rm -rf "$RPMTOP"
+    RPMTOP=
     BUILT_RPM=1
 else
     BUILT_RPM=0
-    echo "==> Skipping .rpm (rpmbuild not found — install the 'rpm-build' package to enable)"
+    if [ "$LINUX_ALL" -eq 1 ]; then
+        echo "==> Skipping .rpm (rpmbuild not found — install the 'rpm-build' package to enable)"
+    fi
 fi
 
 # ---------------------------------------------------------------------------
 # Standalone binary
 # ---------------------------------------------------------------------------
 mkdir -p builds
-cp vlsh "builds/${PKG_NAME}_linux"
+if [ "$BUILD_STANDALONE" -eq 1 ]; then
+    cp vlsh "builds/${PKG_NAME}_linux"
+fi
 
 echo ""
 echo "Done. Built artifacts in builds/:"

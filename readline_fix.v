@@ -27,7 +27,6 @@ pub mut:
 	search_saved_current       []rune
 }
 
-fn C.raise(sig i32)
 fn C.getppid() i32
 
 // ── action enum ──────────────────────────────────────────────────────────────

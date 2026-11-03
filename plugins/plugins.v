@@ -2,7 +2,7 @@ module plugins
 
 import os
 import net.http
-import json
+import json2
 
 fn find_v_compiler() string {
 	for dir in os.getenv('PATH').split(':').filter(it.len > 0) {
@@ -17,7 +17,8 @@ fn find_v_compiler() string {
 const remote_api = 'https://api.github.com/repos/vlshcc/plugins/contents'
 const raw_base   = 'https://raw.githubusercontent.com/vlshcc/plugins/main'
 
-struct GHFile {
+pub struct GHFile {
+pub:
 	name     string
 	html_url string
 }
@@ -494,7 +495,7 @@ pub fn remote_plugin_names() ![]string {
 	if resp.status_code != 200 {
 		return error('remote returned status ${resp.status_code}')
 	}
-	files := json.decode([]GHFile, resp.body) or {
+	files := json2.decode[[]GHFile](resp.body) or {
 		return error('could not parse remote plugin list')
 	}
 	mut names := []string{}
@@ -518,7 +519,7 @@ pub fn remote_versions(plugin_name string) ![]string {
 	if resp.status_code != 200 {
 		return error('remote returned status ${resp.status_code}')
 	}
-	files := json.decode([]GHFile, resp.body) or {
+	files := json2.decode[[]GHFile](resp.body) or {
 		return error('could not parse version list for "${plugin_name}"')
 	}
 	mut versions := []string{}

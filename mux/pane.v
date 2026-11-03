@@ -600,9 +600,6 @@ pub fn (mut p Pane) feed(data []u8) {
 				next_tab := ((p.cur_x / 8) + 1) * 8
 				p.cur_x = if next_tab >= p.width { p.width - 1 } else { next_tab }
 			}
-			0x0d {
-				p.cur_x = 0
-			}
 			else {
 				if b >= 0xC0 {
 					// Start of a 2-, 3-, or 4-byte UTF-8 sequence.

@@ -86,6 +86,9 @@ fn glob_match(pattern string, s string) bool {
 				adv = 4
 			}
 		}
+		if adv > s.len {
+			return false
+		}
 		return glob_match(pattern[1..], s[adv..])
 	}
 	if s.len == 0 {
@@ -280,7 +283,7 @@ pub fn ok(input string) {
 }
 
 pub fn fail(input string) {
-	println(term.fail_message('ERR| ${input}'))
+	eprintln(term.fail_message('ERR| ${input}'))
 }
 
 pub fn warn(input string) {
@@ -376,66 +379,126 @@ pub fn quote_shell_token_if_needed(s string) string {
 	return '"' + s.replace('"', '\\"') + '"'
 }
 
-// parse_args splits a command string into tokens, respecting single and
-// double quoted strings (which are kept as one token with quotes stripped).
-// Unquoted boundaries use IFS (default space, tab, newline when IFS is unset).
-// A lone `|` outside quotes is always its own token (so `cmd|more` and `cmd |more`
-// both pipe like POSIX shells). When IFS contains only whitespace, consecutive
-// delimiters collapse; otherwise each delimiter can produce an empty field.
-// Variable references ($VAR, $?, $0, etc.) are expanded in each token, then
-// unquoted tokens that contain * or ? are glob-expanded against the filesystem;
-// if no files match the pattern is passed through unchanged.
-pub fn parse_args(input string) []string {
+// ShellToken retains operator provenance so quoted or expanded punctuation stays data.
+pub struct ShellToken {
+pub:
+	text     string
+	operator bool
+}
+
+// parse_tokens expands each word once and keeps literal and expandable segments
+// separate. IFS handling retains the documented lexer subset.
+pub fn parse_tokens(input string) []ShellToken {
 	ifs := ifs_chars_for_split()
 	collapse := ifs_whitespace_only(ifs)
-	mut args := []string{}
+	mut tokens := []ShellToken{}
 	mut current := strings.new_builder(32)
+	mut segment := strings.new_builder(32)
 	mut in_single := false
 	mut in_double := false
-	mut has_quoted := false // any part of the current token was inside quotes
-	// Iterate runes with index so `|` can be a token boundary without spaces.
+	mut quoted := false
+	mut started := false
 	runes := input.runes()
 	mut i := 0
 	for i < runes.len {
 		ch := runes[i]
+		if ch == `\\` && !in_single && i + 1 < runes.len {
+			next := runes[i + 1]
+			if !in_double || next == `$` || next == `"` || next == `\\` || next == `\n` {
+				current.write_string(expand_vars(segment.str()))
+				segment = strings.new_builder(32)
+				if next != `\n` { current.write_rune(next) }
+				quoted = true
+				started = true
+				i += 2
+				continue
+			}
+		}
 		if ch == `'` && !in_double {
+			current.write_string(if in_single { segment.str() } else { expand_vars(segment.str()) })
+			segment = strings.new_builder(32)
 			in_single = !in_single
-			has_quoted = true
+			quoted = true
+			started = true
 			i++
-		} else if ch == `"` && !in_single {
+			continue
+		}
+		if ch == `"` && !in_single {
+			current.write_string(expand_vars(segment.str()))
+			segment = strings.new_builder(32)
 			in_double = !in_double
-			has_quoted = true
+			quoted = true
+			started = true
 			i++
-		} else if !in_single && !in_double && ch == `|` {
-			if current.len > 0 {
-				args << glob_expand(expand_vars(current.str()), has_quoted)
-				current = strings.new_builder(32)
-				has_quoted = false
+			continue
+		}
+		// Keep nested parameter expressions intact, including spaces/operators.
+		if ch == `$` && !in_single && i + 1 < runes.len && runes[i + 1] == `{` {
+			mut depth := 1
+			segment.write_string('$' + '{')
+			i += 2
+			for i < runes.len && depth > 0 {
+				if runes[i] == `{` { depth++ }
+				if runes[i] == `}` { depth-- }
+				segment.write_rune(runes[i])
+				i++
 			}
-			args << '|'
-			i++
-		} else if !in_single && !in_double && is_ifs_rune(ch, ifs) {
-			if collapse {
-				if current.len > 0 {
-					args << glob_expand(expand_vars(current.str()), has_quoted)
+			started = true
+			continue
+		}
+		is_operator := !in_single && !in_double && (ch == `|` || ch == `>` || ch == `<`)
+		is_boundary := !in_single && !in_double && is_ifs_rune(ch, ifs)
+		if is_operator || is_boundary {
+			if started || (is_boundary && !collapse) {
+				current.write_string(if in_single {
+					segment.str()
+				} else {
+					expand_vars(segment.str())
+				})
+				word := current.str()
+				if is_operator && ch == `>` && word == '2' && !quoted && i + 2 < runes.len && runes[i + 1] == `&` && runes[i + 2] == `1` {
+					tokens << ShellToken{ text: '2>&1', operator: true }
+					i += 3
 					current = strings.new_builder(32)
-					has_quoted = false
+					segment = strings.new_builder(32)
+					started = false
+					quoted = false
+					continue
 				}
-			} else {
-				args << glob_expand(expand_vars(current.str()), has_quoted)
-				current = strings.new_builder(32)
-				has_quoted = false
+				for value in glob_expand(word, quoted) {
+					tokens << ShellToken{ text: value }
+				}
 			}
-			i++
+			current = strings.new_builder(32)
+			segment = strings.new_builder(32)
+			started = false
+			quoted = false
+			if is_operator {
+				mut op := ch.str()
+				if ch == `>` && i + 1 < runes.len && runes[i + 1] == `>` {
+					op = '>>'
+					i++
+				}
+				tokens << ShellToken{ text: op, operator: true }
+			}
 		} else {
-			current.write_rune(ch)
-			i++
+			segment.write_rune(ch)
+			started = true
+		}
+		i++
+	}
+	if started {
+		current.write_string(if in_single { segment.str() } else { expand_vars(segment.str()) })
+		for value in glob_expand(current.str(), quoted) {
+			tokens << ShellToken{ text: value }
 		}
 	}
-	if current.len > 0 {
-		args << glob_expand(expand_vars(current.str()), has_quoted)
-	}
-	return args
+	return tokens
+}
+
+// parse_args is the text-only view used by completion, history and plugins.
+pub fn parse_args(input string) []string {
+	return parse_tokens(input).map(it.text)
 }
 
 fn utf8_char_len_at(s string, i int) int {
@@ -658,7 +721,7 @@ pub fn expand_history_bangs(input string, last string) !string {
 // contains wildcard characters (* or ?).  Falls back to [tok] if quoted, no
 // wildcards, or no matches found.
 fn glob_expand(tok string, was_quoted bool) []string {
-	if was_quoted || (!tok.contains('*') && !tok.contains('?')) {
+	if was_quoted {
 		return [tok]
 	}
 	// Expand a leading ~ before handing the pattern to the OS glob.
@@ -668,6 +731,9 @@ fn glob_expand(tok string, was_quoted bool) []string {
 		os.home_dir() + tok[1..]
 	} else {
 		tok
+	}
+	if !pattern.contains('*') && !pattern.contains('?') {
+		return [pattern]
 	}
 	// V's os.glob cannot handle path components like ../ or ./ because its
 	// internal walker skips '.' and '..' entries.  Resolve the directory part
@@ -720,11 +786,11 @@ pub fn debug[T](input ...T) {
 	if debug_mode == 'true' {
 		print(term.bg_rgb(style['style_debug_bg'][0], style['style_debug_bg'][1], style['style_debug_bg'][2],
 			term.rgb(style['style_debug_fg'][0], style['style_debug_fg'][1], style['style_debug_fg'][2],
-			'debug::\t\t')))
+				'debug::\t\t')))
 		for i in input {
 			print(term.bg_rgb(style['style_git_bg'][0], style['style_git_bg'][1], style['style_git_bg'][2],
 				term.rgb(style['style_git_fg'][0], style['style_git_fg'][1], style['style_git_fg'][2],
-				i.str())))
+					i.str())))
 		}
 		print('\n')
 	}

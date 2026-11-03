@@ -6,7 +6,7 @@ to read, modify, and extend.
 
 ### Features at a glance
 
-- **Pipes, redirection, and command chaining** — `cmd1 | cmd2`, `> file`, `>> file`, `< file`, and `2>&1` (merge stderr into captured stdout when piping or redirecting); AND-chains (`&&`), OR-chains (`||`), and unconditional sequences (`;`)
+- **Pipes, redirection, and command chaining** — `cmd1 | cmd2`, `> file`, `>> file`, `< file`, and `2>&1` (merge stderr into stdout); AND-chains (`&&`), OR-chains (`||`), and unconditional sequences (`;`)
 - **Glob expansion** — `*.v`, `./*.deb`, `~/docs/**` expanded before execution
 - **Tilde and parameter expansion** — `~/path`, `$VAR`, `${var:-word}`, `${#var}`, `${var#pat}` / `${var%pat}` (glob `*`/`?` in `pat`), nested `${…}`, `VAR=val cmd`; unquoted words split on session **`IFS`** (default space/tab/newline) (see [docs/posix-inventory.md](docs/posix-inventory.md))
 - **Command history** — up/down arrow browsing and `Ctrl+R` incremental search;
@@ -47,37 +47,45 @@ to read, modify, and extend.
 
 ### Pre-built packages (recommended)
 
-The latest release is **v1.2.0**. Pre-built packages for 64-bit Linux are
-available on the [releases page](https://github.com/vlshcc/vlsh/releases).
+The latest published release is **v1.2** (package version **1.2.0**). The Linux
+`.deb` and standalone binary are available on the
+[releases page](https://github.com/vlshcc/vlsh/releases/tag/v1.2).
+The behavior documented below follows the current `main` branch; build from
+source for the unreleased stability and packaging fixes in [CHANGELOG.md](CHANGELOG.md).
 
 **Debian / Ubuntu — install via `.deb`:**
 
 ```sh
-curl -LO https://github.com/vlshcc/vlsh/releases/download/v1.2.0/vlsh_1.2.0_amd64.deb
+curl -LO https://github.com/vlshcc/vlsh/releases/download/v1.2/vlsh_1.2.0_amd64.deb
 sudo dpkg -i vlsh_1.2.0_amd64.deb
 ```
 
 The package installs the binary to `/usr/bin/vlsh` and automatically adds it
 to `/etc/shells` via the postinst script.
 
-**Fedora / RHEL — install via `.rpm`:**
+**Fedora / RHEL — build an `.rpm` from source:**
+
+The published release has no RPM asset. With V and `rpmbuild` installed:
 
 ```sh
-curl -LO https://github.com/vlshcc/vlsh/releases/download/v1.2.0/vlsh-1.2.0-1.x86_64.rpm
-sudo rpm -U vlsh-1.2.0-1.x86_64.rpm
+git clone https://github.com/vlshcc/vlsh.git
+cd vlsh
+make dist-rpm
+sudo rpm -U builds/vlsh-1.2.0-1.*.rpm
 ```
 
 **Other Linux — standalone binary:**
 
 ```sh
-curl -LO https://github.com/vlshcc/vlsh/releases/download/v1.2.0/vlsh_1.2.0_amd64_linux
+curl -LO https://github.com/vlshcc/vlsh/releases/download/v1.2/vlsh_1.2.0_amd64_linux
 chmod +x vlsh_1.2.0_amd64_linux
 sudo mv vlsh_1.2.0_amd64_linux /usr/local/bin/vlsh
 ```
 
 ### Prerequisites (from source)
 
-- [V](https://vlang.io) — install with `v up` or from https://github.com/vlang/v
+- [V](https://vlang.io) — CI uses V 0.5.2; install from https://github.com/vlang/v
+- `make` and a C compiler; Python 3 for `make test`
 
 ### Build and run (try it out)
 
@@ -88,17 +96,21 @@ v .
 ./vlsh
 ```
 
-From the same directory, `make help` summarizes Makefile targets; `make test` runs the test suite (`v test .`), `make build` compiles (`v .`), and `make clean` removes the `vlsh` binary. **`make fuzz`** runs `tools/fuzz_shell.v` to stress parsers with random input (`FUZZ_ITER`, optional decimal `FUZZ_SEED` as a full integer string). Random lines can trigger stderr from parameter expansion diagnostics; use `2>/dev/null` if you want a quiet run. Override the compiler with `make V=/path/to/v`.
+From the same directory, `make help` summarizes Makefile targets; `make test` runs the V module tests and Python 3 shell integration tests (see [Testing and stability](docs/testing.md)), `make build` compiles (`v .`), and `make clean` removes the `vlsh` binary. **`make fuzz`** runs `tools/fuzz_shell.v` to stress parsers with random input (`FUZZ_ITER`, optional decimal `FUZZ_SEED` as a full integer string). Random lines can trigger stderr from parameter expansion diagnostics; use `2>/dev/null` if you want a quiet run. Override the compiler with `make V=/path/to/v`.
 
-`make install` installs the built `vlsh` into `$(PREFIX)/bin` (default `/usr/local/bin`). Use `sudo make install`, or set `DESTDIR` / `PREFIX` for a staged install.
+`make install` installs the already-built `vlsh` into `$(PREFIX)/bin` (default `/usr/local/bin`) and adds that path to `/etc/shells` if it is missing. Run `make build` as your regular user first, then `sudo make install`. Installation does not invoke V, so the compiler does not need to be in sudo's PATH. Set `REGISTER_SHELL=0` to skip registration (for example, for a user-local install). Staged installs with `DESTDIR` skip registration; `SHELLS_FILE` overrides the registry path for testing.
 
-**Distribution builds** — `make dist` (same as `make dist-build`) runs `pkg/dist.sh build`. Any **existing** matching artifacts already in `builds/` are renamed with a timestamp so a new run does not silently overwrite them, then the script runs `pkg/build.sh` for:
+**Distribution builds** — `make dist` (same as `make dist-build`) runs `pkg/dist.sh build`. Existing artifacts for the selected targets and host architecture are preserved with a timestamp; earlier archives and other targets are left in place. The default builds all targets:
 
 - **Linux** — `.deb` (needs `dpkg-deb`), `.rpm` (needs `rpmbuild`), and a standalone `vlsh_*_*_linux` binary
 - **FreeBSD** and **DragonFly** — cross-compiled binaries (needs `clang` and `lld`; DragonFly also downloads an ISO once — use `bsdtar` *or* GNU `tar` to extract it, plus `curl` and `bunzip2`)
 - **NetBSD** and **OpenBSD** — native builds only: when `dist` runs on Linux, these steps no-op; run `pkg/build.sh --netbsd` or `--openbsd` **on** NetBSD/OpenBSD to produce `builds/vlsh_*_*_netbsd` / `_openbsd` (V does not yet ship a Linux→NetBSD/OpenBSD cross sysroot like FreeBSD).
 
+Use `make dist-deb` for only `.deb`, `make dist-rpm` for only `.rpm`, or `make dist-linux` for available Linux packages plus the standalone binary. Explicit package targets require their packaging tool and fail if it is missing. Both scripts accept `--deb`, `--rpm`, `--linux`, and `--standalone`; `pkg/dist.sh build` also accepts combinations with BSD targets. For example, `make dist DIST_FLAGS="--deb --netbsd"` selects those two targets. `make V=/path/to/v` also applies to distribution builds.
+
 **FreeBSD cross-build** — `pkg/build.sh` pre-clones the FreeBSD sysroot (same GitHub tree V uses for linking) *before* invoking `v`, because V currently builds third-party C objects before it downloads that sysroot; without this step, `pthread.h` and similar headers are missing during `gc.o` compilation.
+
+BSD port templates under `pkg/` are drafts with placeholder checksums and require native validation. See [FreeBSD port notes](docs/freebsd-port.md), [DragonFly port notes](docs/dragonfly-port.md), and [DragonFly build notes](docs/dragonfly-support.md).
 
 `make dist-install` runs `pkg/dist.sh install`: it selects the **newest** suitable `.deb`, `.rpm`, or OS-specific binary in `builds/` for the current platform (by modification time) and installs it (`sudo` when not root).
 
@@ -110,11 +122,26 @@ Or run directly without compiling first:
 v run .
 ```
 
+### Non-interactive execution
+
+```sh
+./vlsh -c 'printf hello | cat'
+./vlsh path/to/script
+printf 'echo hello\nfalse\n' | ./vlsh
+./vlsh --version
+```
+
+Batch execution returns the last command's exit code and skips prompts, history,
+startup exports, and automatic plugin loading. Existing aliases are read from
+`~/.vlshrc`; batch mode does not create that file. Scripts currently execute one
+line at a time and support the documented shell subset.
+
 ### System-wide install
 
 After building, install the binary to your `PATH`:
 
 ```sh
+make build
 sudo make install
 # or: sudo cp vlsh /usr/local/bin/vlsh
 ```
@@ -128,10 +155,11 @@ vlsh --version 2>/dev/null || vlsh -c 'version'
 
 ### Set vlsh as your default login shell
 
-1. Add vlsh to the list of approved shells:
+1. Install and register vlsh in the list of approved shells:
 
    ```sh
-   echo /usr/local/bin/vlsh | sudo tee -a /etc/shells
+   make build
+   sudo make install
    ```
 
 2. Change your login shell:
@@ -188,7 +216,10 @@ cfg/cfg.v       – config file (~/.vlshrc) parsing, aliases, paths, style
 cmds/cmds.v     – built-in commands: help, cd
 cmds/ls.v       – built-in colorised ls
 cmds/cp.v       – built-in overwrite-copy (ocp)
-exec/exec.v     – external-command execution, pipe chains, I/O redirection
+exec/exec.v     – concurrent pipeline execution and I/O redirection
+exec/process_helpers.h – POSIX process, pipe, signal, and wait helpers
+shellops/      – command-list splitting and syntax validation
+tests/         – shell, installation, and packaging integration tests
 mux/mux.v       – terminal multiplexer entry point and event loop
 mux/pane.v      – per-pane VT100 parser and cell grid
 mux/layout.v    – binary-tree layout engine (splits/resize/navigation)
@@ -261,12 +292,12 @@ echo "hello" > file.txt
 echo "world" >> file.txt
 ```
 
-**Merging stderr into stdout (`2>&1`)** – for external commands, when the command’s stdout is captured (pipe, `>`, `>>`, or `<`), the token `2>&1` includes stderr in that capture. Typical use:
+**Merging stderr into stdout (`2>&1`)** – for external commands, the token `2>&1` sends stderr to the command’s stdout, including pipes and output files. Typical use:
 ```
 some_cmd > log.txt 2>&1
 some_cmd 2>&1 | grep -i error
 ```
-Captured stderr is concatenated after stdout (not byte-interleaved), which matches common logging use cases.
+Pipeline stages run concurrently. `2>&1` merges stderr into the same OS stream as stdout, preserving the order in which the command writes to that stream. Without `2>&1`, stderr remains visible separately. Descriptor duplication order (such as `2>&1 > file`) is not yet modeled; see the inventory.
 
 **Input redirection** – feed a file into a command's stdin with `<`:
 ```
@@ -295,10 +326,12 @@ make ; make install
 vi ~/.config/nvim/init.vim
 ```
 
-**Environment-variable prefix** – set variables only for the duration of one command:
+**Environment-variable prefix** – set variables only for the duration of one command; previous values are restored afterwards:
 ```
 FIELD_LIST='used,avail' df -h --no-sync .
 ```
+
+Assignment-only commands such as `NAME=value` persist in the current session.
 
 **Parameter expansion** – Applied when parsing command words (including arguments to `echo` and other commands): simple `$VAR`, `$$`, `$?`, `$0`, and POSIX-style brace forms such as `${VAR}`, `${#VAR}` (length), `${var:-word}` (default if unset or empty), `${var:=word}` (assign default), `${var:+word}` (alternate if set), `${var:?word}` (diagnostic if unset; vlsh prints to stderr and substitutes empty—see [docs/posix-inventory.md](docs/posix-inventory.md)), `${var#pat}` / `${var##pat}` (remove shortest / longest matching prefix; `*` and `?` glob in `pat`; `[]` classes not implemented yet), and `${var%pat}` / `${var%%pat}` (shortest / longest suffix). Nested `${…}` is supported. **Word splitting:** unquoted tokens are split on the session **`IFS`** (default space, tab, newline when `IFS` is unset); see the inventory for lexer vs strict POSIX field-splitting. Text in **single quotes** is literal (no expansion); **double quotes** allow expansion.
 
@@ -360,7 +393,7 @@ The goal is **option (b)**: grow a **documented, tested subset** of POSIX *sh* b
 
 **Suggested phases**
 
-1. **Stabilise the current surface** — Treat parsing and execution that already exists as the contract: tokenisation and quotes (`parse_args`), command lists (`split_commands` for `&&` / `||` / `;`), `$` expansion (`expand_vars`), globs, leading `VAR=value` assignments, builtins such as `export`, `unset`, `cd`, `source` / `.`, pipes, and redirection. Extend **`v test .`** whenever behavior is fixed or specified more precisely (see `utils/*_test.v`, `shellops/*_test.v`, `exec/*_test.v`). A **feature inventory** (what is implemented vs not) is maintained in [`docs/posix-inventory.md`](docs/posix-inventory.md).
+1. **Stabilise the current surface** — Treat parsing and execution that already exists as the contract: tokenisation and quotes (`parse_args`), command lists (`split_commands` for `&&` / `||` / `;`), `$` expansion (`expand_vars`), globs, leading `VAR=value` assignments, builtins such as `export`, `unset`, `cd`, `source` / `.`, pipes, and redirection. Extend **`make test`** whenever behavior is fixed or specified more precisely (see `utils/*_test.v`, `shellops/*_test.v`, `exec/*_test.v`). A **feature inventory** (what is implemented vs not) is maintained in [`docs/posix-inventory.md`](docs/posix-inventory.md).
 
 2. **Parameter expansion and word splitting** — Implemented: `${name}`, `${#name}`, `${var:-word}`, `${var:=word}`, `${var:+word}`, `${var:?word}` (partial vs strict POSIX—see inventory), `${var#pat}` / `${var##pat}` / `${var%pat}` / `${var%%pat}` (glob `*`/`?` in `pat`; no `[]` yet), nested `${…}`. **IFS:** `parse_args` uses the session `IFS` when set (non-empty); default space/tab/newline when unset; see inventory for lexer vs post-expansion nuances. Implementation: `expand_vars` / `expand_brace_param`, `ifs_chars_for_split` / `parse_args` in `utils/utils.v`; tests in `utils/utils_test.v`. README and `help` describe user-facing behaviour.
 
@@ -712,11 +745,11 @@ The status bar at the top shows `vlsh mux` on the left and the live pane count o
 
 ### Module API summary
 
-**`cfg`** – `get() !Cfg`, `paths() ![]string`, `aliases() !map[string]string`, `style() !map[string][]int`, `add_path`, `remove_path`, `add_alias`, `remove_alias`, `set_style`
+**`cfg`** – `get() !Cfg`, `aliases() !map[string]string`, `style() !map[string][]int`, `add_alias`, `remove_alias`, `set_style`
 
 **`exec`** – `Task.prepare_task() !int` runs a command string (with pipes, redirection, tilde expansion) and returns the exit code
 
-**`utils`** – `parse_args(string) []string` tokenises a command line respecting single/double quotes; `fail/warn/ok/debug` for formatted output
+**`utils`** – `parse_tokens(string) []ShellToken` retains operator provenance; `parse_args(string) []string` tokenises a command line respecting single/double quotes; `fail/warn/ok/debug` for formatted output
 
 **`mux`** – `enter(status_providers []string)` is the public entry point; internally uses `Mux`, `Pane`, `LayoutNode`, `InputHandler`
 

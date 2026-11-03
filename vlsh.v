@@ -7,7 +7,7 @@ import cmds
 import exec
 import mux
 import plugins
-import shellops { builtin_redirect, split_commands, write_redirect }
+import shellops { split_commands, write_redirect }
 import utils
 
 // Human release line (bump when you cut a release). Unreleased builds from git
@@ -124,6 +124,38 @@ fn append_history(entry string) {
 }
 
 fn main() {
+	// Batch mode has no prompt, history writes, config creation or plugin loading.
+	if os.args.len > 1 {
+		match os.args[1] {
+			'--version', '-v' {
+				println('version ${version}')
+				return
+			}
+			'--help', '-h' {
+				println('Usage: vlsh [-c command | script]')
+				return
+			}
+			'-c' {
+				if os.args.len != 3 {
+					eprintln('vlsh: -c requires one command string')
+					exit(2)
+				}
+				mut loaded := []plugins.Plugin{}
+				os.setenv('?', '0', true)
+				exit(main_loop(os.args[2], mut loaded))
+			}
+			else {
+				content := os.read_file(os.args[1]) or {
+					eprintln('vlsh: ${err.msg()}')
+					exit(1)
+				}
+				exit(run_script(content))
+			}
+		}
+	}
+	if os.is_atty(0) == 0 {
+		exit(run_script(os.get_raw_lines_joined()))
+	}
 	if !os.exists(cfg.config_file) {
 		cfg.create_default_config_file() or { panic(err.msg()) }
 	}
@@ -176,6 +208,20 @@ fn main() {
 	}
 }
 
+fn run_script(content string) int {
+	mut loaded := []plugins.Plugin{}
+	os.setenv('?', '0', true)
+	mut code := 0
+	for line in content.split('\n') {
+		if line.trim_space() == '' || line.trim_space().starts_with('#') {
+			continue
+		}
+		code = main_loop(line, mut loaded)
+		os.setenv('?', code.str(), true)
+	}
+	return code
+}
+
 // source_rc processes export/unset lines from ~/.vlshrc at startup so that
 // environment variables (including PATH) are set before the first prompt.
 fn source_rc(mut loaded_plugins []plugins.Plugin) {
@@ -195,15 +241,22 @@ fn source_rc(mut loaded_plugins []plugins.Plugin) {
 // Keeping this separate from main_loop lets main_loop set/unset temporary
 // KEY=VALUE env-prefix overrides at a single cleanup point.
 // full_cmdline is the original, unsplit input used for hook notifications.
-fn dispatch_cmd(cmd string, args []string, mut loaded_plugins []plugins.Plugin, full_cmdline string) int {
+fn dispatch_cmd(cmd string, args []string, mut loaded_plugins []plugins.Plugin, full_cmdline string, tokens []utils.ShellToken, alias_depth int) int {
 	// Expand aliases before the match so that aliases whose expansion begins
 	// with a builtin command (e.g. `nav=cd /tmp`) are dispatched correctly
 	// instead of being sent to the external-command executor.
-	// One level of expansion is performed; if the expanded command is the same
-	// as the original (self-alias guard) we fall through to avoid infinite recursion.
-	alias_cfg := cfg.get() or { cfg.Cfg{} }
+	// Bound indirect alias chains; self-aliases are expanded once by exec.
+	alias_cfg := if os.exists(cfg.config_file) { cfg.get() or { cfg.Cfg{} } } else { cfg.Cfg{} }
 	if cmd in alias_cfg.aliases {
-		alias_split := alias_cfg.aliases[cmd].split(' ')
+		if alias_depth >= 32 {
+			utils.fail('alias expansion limit exceeded')
+			return 1
+		}
+		alias_tokens := utils.parse_tokens(alias_cfg.aliases[cmd])
+		alias_split := alias_tokens.map(it.text)
+		if alias_split.len == 0 {
+			return 0
+		}
 		expanded_cmd := alias_split[0]
 		if expanded_cmd != cmd {
 			mut expanded_args := if alias_split.len > 1 {
@@ -212,7 +265,9 @@ fn dispatch_cmd(cmd string, args []string, mut loaded_plugins []plugins.Plugin, 
 				[]string{}
 			}
 			expanded_args << args
-			return dispatch_cmd(expanded_cmd, expanded_args, mut loaded_plugins, full_cmdline)
+			mut expanded_tokens := alias_tokens.clone()
+			expanded_tokens << tokens[1..]
+			return dispatch_cmd(expanded_cmd, expanded_args, mut loaded_plugins, full_cmdline, expanded_tokens, alias_depth + 1)
 		}
 	}
 
@@ -303,10 +358,30 @@ fn dispatch_cmd(cmd string, args []string, mut loaded_plugins []plugins.Plugin, 
 			}
 		}
 		'echo' {
-			clean_args, rfile, rappend := builtin_redirect(args)
+			mut clean_args := []string{}
+			mut rfile := ''
+			mut rappend := false
+			mut i := 1
+			for i < tokens.len {
+				if tokens[i].operator && tokens[i].text in ['>', '>>'] {
+					if i + 1 >= tokens.len || tokens[i + 1].operator || tokens[i + 1].text == '' {
+						utils.fail('syntax error: missing redirection target')
+						return 2
+					}
+					rappend = tokens[i].text == '>>'
+					i++
+					rfile = tokens[i].text
+				} else {
+					clean_args << tokens[i].text
+				}
+				i++
+			}
 			output := clean_args.join(' ') + '\n'
 			if rfile != '' {
-				write_redirect(rfile, output, rappend) or { utils.fail(err.msg()) }
+				write_redirect(rfile, output, rappend) or {
+					utils.fail(err.msg())
+					return 1
+				}
 			} else {
 				print(output)
 			}
@@ -319,7 +394,10 @@ fn dispatch_cmd(cmd string, args []string, mut loaded_plugins []plugins.Plugin, 
 			}
 		}
 		'ocp' {
-			cmds.ocp(args) or { utils.fail(err.msg()) }
+			cmds.ocp(args) or {
+				utils.fail(err.msg())
+				return 1
+			}
 		}
 		'exit' {
 			code := if args.len > 0 { args[0].int() } else { 0 }
@@ -380,9 +458,14 @@ fn dispatch_cmd(cmd string, args []string, mut loaded_plugins []plugins.Plugin, 
 		'ls' {
 			cmds.ls(args) or {
 				if err.msg() == '__fallthrough__' {
-					local_cfg := cfg.get() or { cfg.Cfg{} }
+					local_cfg := if os.exists(cfg.config_file) {
+						cfg.get() or { cfg.Cfg{} }
+					} else {
+						cfg.Cfg{}
+					}
 					mut t := exec.Task{
-						cmd: exec.Cmd_object{
+						tokens: tokens
+						cmd:    exec.Cmd_object{
 							cmd:     cmd
 							args:    args
 							aliases: local_cfg.aliases
@@ -393,8 +476,10 @@ fn dispatch_cmd(cmd string, args []string, mut loaded_plugins []plugins.Plugin, 
 						return 1
 					}
 					plugins.run_output_hooks(loaded_plugins, full_cmdline, ls_code, t.last_output)
+					return ls_code
 				} else {
 					utils.fail(err.msg())
+					return 1
 				}
 			}
 		}
@@ -605,9 +690,14 @@ fn dispatch_cmd(cmd string, args []string, mut loaded_plugins []plugins.Plugin, 
 			if plugins.dispatch(loaded_plugins, cmd, args) {
 				return 0
 			}
-			local_cfg := cfg.get() or { cfg.Cfg{} }
+			local_cfg := if os.exists(cfg.config_file) {
+				cfg.get() or { cfg.Cfg{} }
+			} else {
+				cfg.Cfg{}
+			}
 			mut t := exec.Task{
-				cmd: exec.Cmd_object{
+				tokens: tokens
+				cmd:    exec.Cmd_object{
 					cmd:     cmd
 					args:    args
 					aliases: local_cfg.aliases
@@ -625,6 +715,13 @@ fn dispatch_cmd(cmd string, args []string, mut loaded_plugins []plugins.Plugin, 
 }
 
 fn main_loop(input string, mut loaded_plugins []plugins.Plugin) int {
+	if input.trim_space().starts_with('#') {
+		return os.getenv('?').int()
+	}
+	shellops.validate_command_line(input) or {
+		utils.fail(err.msg())
+		return 2
+	}
 	// Handle &&, ||, and ; chains while respecting quotes.
 	chain := split_commands(input)
 	if chain.len > 1 {
@@ -640,64 +737,57 @@ fn main_loop(input string, mut loaded_plugins []plugins.Plugin) int {
 		return last_code
 	}
 
-	input_split := utils.parse_args(input)
+	single_input := if chain.len == 1 { chain[0].cmd } else { input }
+	tokens := utils.parse_tokens(single_input)
+	input_split := tokens.map(it.text)
 	if input_split.len == 0 {
-		return 0
+		return os.getenv('?').int()
 	}
 
-	// Strip leading KEY=VALUE env assignments (e.g. `FOO=bar cmd args…`).
-	// They are set in the parent's environment so the child inherits them,
-	// then unset after the command returns so they don't persist.
+	// Save existence as well as value, including empty and repeated assignments.
+	previous_env := os.environ()
 	mut env_keys := []string{}
 	mut start := 0
-	for start < input_split.len && utils.is_env_assign(input_split[start]) {
+	for start < input_split.len && !tokens[start].operator && utils.is_env_assign(input_split[start]) {
 		tok := input_split[start]
 		eq := tok.index_u8(`=`)
-		os.setenv(tok[..eq], tok[eq + 1..], true)
-		env_keys << tok[..eq]
+		key := tok[..eq]
+		os.setenv(key, tok[eq + 1..], true)
+		env_keys << key
 		start++
 	}
-
-	cmd := if start < input_split.len { input_split[start] } else { '' }
-	args := if start + 1 < input_split.len { input_split[start + 1..].clone() } else { []string{} }
-
-	if cmd == '' {
-		for key in env_keys {
-			os.unsetenv(key)
-		}
+	// Assignment-only commands persist in this shell session.
+	if start == input_split.len {
 		return 0
 	}
-
-	// Pipe chains must go through exec.prepare_task so tokens like `ls | more`
-	// are not passed to built-ins as literal arguments (e.g. ls would try to
-	// list a directory named "|").
-	tail := input_split[start..]
-	if tail.any(it == '|') {
-		local_cfg := cfg.get() or { cfg.Cfg{} }
+	defer { restore_environment(env_keys, previous_env) }
+	cmd := input_split[start]
+	args := input_split[start + 1..].clone()
+	tail := tokens[start..]
+	// Streaming pipes and external redirections go through the executor.
+	if tail.any(it.operator && it.text == '|') || (cmd != 'echo' && tail.any(it.operator)) {
+		local_cfg := if os.exists(cfg.config_file) { cfg.get() or { cfg.Cfg{} } } else { cfg.Cfg{} }
 		mut t := exec.Task{
-			cmd: exec.Cmd_object{
-				cmd:     cmd
-				args:    args
-				aliases: local_cfg.aliases
-			}
+			tokens: tail
+			cmd:    exec.Cmd_object{ cmd: cmd, args: args, aliases: local_cfg.aliases }
 		}
 		code := t.prepare_task() or {
 			utils.fail(err.msg())
-			for key in env_keys {
-				os.unsetenv(key)
-			}
 			return 1
 		}
 		plugins.run_output_hooks(loaded_plugins, input, code, t.last_output)
-		for key in env_keys {
-			os.unsetenv(key)
-		}
 		return code
 	}
+	return dispatch_cmd(cmd, args, mut loaded_plugins, input, tail, 0)
+}
 
-	code := dispatch_cmd(cmd, args, mut loaded_plugins, input)
-	for key in env_keys {
-		os.unsetenv(key)
+// Kept outside defer so older V compilers generate statement-form branches.
+fn restore_environment(keys []string, previous map[string]string) {
+	for key in keys {
+		if key in previous {
+			os.setenv(key, previous[key], true)
+		} else {
+			os.unsetenv(key)
+		}
 	}
-	return code
 }

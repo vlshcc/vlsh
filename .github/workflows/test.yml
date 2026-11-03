@@ -1,0 +1,23 @@
+name: Test
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build V 0.5.2
+        run: |
+          git clone --depth 1 --branch 0.5.2 https://github.com/vlang/v.git "$RUNNER_TEMP/v"
+          make -C "$RUNNER_TEMP/v"
+          echo "$RUNNER_TEMP/v" >> "$GITHUB_PATH"
+      - name: Unit and shell integration tests
+        run: make test
+      - name: Deterministic parser stress test
+        run: make fuzz FUZZ_ITER=10000 FUZZ_SEED=32423425234234
+      - name: Build shell
+        run: make build

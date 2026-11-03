@@ -2,78 +2,48 @@ module exec
 
 import os
 import strings
-
 import utils
 
 // C signal API — used to protect vlsh from SIGINT while a child process runs.
+#include "@VMODROOT/exec/process_helpers.h"
+
+fn C.vlsh_pipe(fds &i32) int
+fn C.vlsh_open(path &char, output int, append int) int
+fn C.vlsh_spawn(path &char, argv &&char, input int, output int, merge int) int
+fn C.vlsh_wait(pid int) int
+fn C.vlsh_read(fd int, buffer voidptr, size usize) int
+
 fn C.signal(signum int, handler voidptr) voidptr
 
-pub struct Cmd_object{
-	pub mut:
-	cmd						string
-	fullcmd					string
-	args					[]string
-	path					string
-	aliases					map[string]string
-	input					string
-	set_redirect_stdio		bool
-	intercept_stdio			bool
-	next_pipe_index			int
-	redirect_file			string
-	redirect_append			bool
-	stdin_file				string
-	// merge_stderr_to_stdout: bash 2>&1 — include stderr in captured stdout when piping or redirecting.
-	merge_stderr_to_stdout	bool
+pub struct Cmd_object {
+pub mut:
+	cmd                    string
+	fullcmd                string
+	args                   []string
+	path                   string
+	aliases                map[string]string
+	redirect_file          string
+	redirect_append        bool
+	stdin_file             string
+	merge_stderr_to_stdout bool
 }
 
 pub struct Task {
-	pub mut:
-	/*
-	cmd is a command object
-	*/
-	cmd			Cmd_object
-	/*
-	pipe_string is only used when handling pipes.
-	it's the full string that we get from stdin
-	containing all commands and arguments
-	*/
-	pipe_string	string
-	/*
-	pipe_cmds is only used when handling pipes.
-	it'll be populated with a command object per
-	command found in the given pipe_string. the
-	next_pipe_index on a Cmd_object corresponds
-	to the indexes of this slice.
-	*/
-	pipe_cmds	[]Cmd_object
-	/*
-	last_exit_code is the exit code of the last
-	child process that was run.
-	*/
+pub mut:
+	// Operator provenance is retained from the first and only parse.
+	tokens         []utils.ShellToken
+	cmd            Cmd_object
+	pipe_cmds      []Cmd_object
 	last_exit_code int
-	/*
-	last_output holds the captured stdout of the last command that ran.
-	It is always populated for standalone commands and pipe chain tails
-	so that plugin output_hooks can record terminal history.
-	*/
+	// Captured pipeline-tail stdout; standalone commands inherit the terminal.
 	last_output string
 }
 
 pub fn (mut t Task) prepare_task() !int {
-	/*
-	parse pipe will normalize the pipe_string that
-	we get from stdin so that we remove unnecessary
-	whitespaces and possible double -pipes, etc.
-	then we populate our pipe_cmds -slice.
-	*/
-	t.parse_pipe()
-
-	t.exec() or {
-
-		return err
-	}
-
-	return t.last_exit_code
+	t.last_output = ''
+	t.pipe_cmds = []Cmd_object{}
+	t.parse_pipe()!
+	return t.exec()
 }
 
 // expand_tilde expands a leading ~ or ~/ to the user's home directory.
@@ -87,329 +57,192 @@ pub fn expand_tilde(s string) string {
 	return s
 }
 
-fn requote_args(args []string) string {
-	mut parts := []string{}
-	for arg in args {
-		// parse_args emits a standalone '|' token between pipe stages; never quote it
-		// or split_pipe_segments will not see a real pipe boundary.
-		if arg == '|' {
-			parts << '|'
-			continue
-		}
-		if arg.contains(' ') {
-			parts << '"' + arg + '"'
-		} else if arg.contains('|') && !arg.contains("'") {
-			// So parse_pipe's join does not expose | to naive splitting; see split_pipe_segments.
-			parts << "'" + arg + "'"
-		} else if arg.contains('|') {
-			parts << '"' + arg.replace('"', '\\"') + '"'
-		} else {
-			parts << arg
+fn (mut t Task) parse_pipe() ! {
+	mut tokens := t.tokens.clone()
+	if tokens.len == 0 {
+		// Compatibility for callers that already supply parsed argument strings.
+		tokens << utils.ShellToken{ text: t.cmd.cmd }
+		for arg in t.cmd.args {
+			tokens << utils.ShellToken{ text: expand_tilde(arg), operator: arg in ['|', '>', '>>',
+				'<', '2>&1'] }
 		}
 	}
-	return parts.join(' ')
-}
-
-// split_pipe_segments splits on | only outside single- and double-quoted regions
-// (same quote rules as utils.parse_args). Used instead of string.split('|') so
-// e.g. sed 's|a|b|g' does not create extra pipe stages.
-fn split_pipe_segments(s string) []string {
-	mut segments := []string{}
-	mut current := strings.new_builder(s.len)
-	mut in_single := false
-	mut in_double := false
-	for ch in s.runes() {
-		if ch == `'` && !in_double {
-			in_single = !in_single
-			current.write_rune(ch)
-		} else if ch == `"` && !in_single {
-			in_double = !in_double
-			current.write_rune(ch)
-		} else if ch == `|` && !in_single && !in_double {
-			seg := current.str().trim_space()
-			if seg != '' {
-				segments << seg
+	mut stages := []Cmd_object{}
+	mut stage := Cmd_object{ aliases: t.cmd.aliases }
+	mut words := []string{}
+	mut i := 0
+	for i < tokens.len {
+		token := tokens[i]
+		if token.operator && token.text == '|' {
+			if words.len == 0 {
+				return error('syntax error: empty pipeline stage')
 			}
-			current = strings.new_builder(s.len)
-		} else {
-			current.write_rune(ch)
-		}
-	}
-	seg := current.str().trim_space()
-	if seg != '' {
-		segments << seg
-	}
-	return segments
-}
-
-fn (mut t Task) parse_pipe() {
-	joined := [t.cmd.cmd, requote_args(t.cmd.args)].join(' ').trim_space()
-	t.pipe_string = norm_pipe(joined)
-	t.walk_pipes()
-}
-
-fn norm_pipe(i string) string {
-	return split_pipe_segments(i).join('|')
-}
-
-// parse_redirect scans a token list for >, >>, <, and 2>&1.  Returns the cleaned
-// args, output file, append flag, stdin file, and whether stderr should be merged into stdout.
-fn parse_redirect(tokens []string) ([]string, string, bool, string, bool) {
-	mut out_args     := []string{}
-	mut rfile        := ''
-	mut rappend      := false
-	mut stdin_file   := ''
-	mut merge_stderr := false
-	mut skip_next    := false
-	for i, tok in tokens {
-		if skip_next {
-			skip_next = false
-			continue
-		}
-		if tok == '2>&1' {
-			merge_stderr = true
-			continue
-		}
-		if tok == '>>' {
-			rappend = true
-			if i + 1 < tokens.len {
-				rfile     = expand_tilde(tokens[i + 1])
-				skip_next = true
+			stage.cmd = words[0]
+			stage.args = words[1..].clone()
+			stages << stage
+			stage = Cmd_object{ aliases: t.cmd.aliases }
+			words = []string{}
+		} else if token.operator && token.text == '2>&1' {
+			stage.merge_stderr_to_stdout = true
+		} else if token.operator && token.text in ['>', '>>', '<'] {
+			if i + 1 >= tokens.len || tokens[i + 1].operator || tokens[i + 1].text == '' {
+				return error('syntax error: missing redirection target')
 			}
-		} else if tok == '>' {
-			rappend = false
-			if i + 1 < tokens.len {
-				rfile     = expand_tilde(tokens[i + 1])
-				skip_next = true
-			}
-		} else if tok == '<' {
-			if i + 1 < tokens.len {
-				stdin_file = expand_tilde(tokens[i + 1])
-				skip_next  = true
+			i++
+			if token.text == '<' {
+				stage.stdin_file = tokens[i].text
+			} else {
+				stage.redirect_file = tokens[i].text
+				stage.redirect_append = token.text == '>>'
 			}
 		} else {
-			out_args << tok
+			words << token.text
 		}
+		i++
 	}
-	return out_args, rfile, rappend, stdin_file, merge_stderr
-}
-
-fn (mut t Task) walk_pipes() {
-	split_pipe_string := split_pipe_segments(t.pipe_string)
-	len := split_pipe_string.len
-	for index, pipe_string in split_pipe_string {
-		split_pipe := utils.parse_args(pipe_string.trim_space())
-		if split_pipe.len == 0 {
-			continue
-		}
-		cmd := split_pipe[0]
-		mut raw_args := []string{}
-		if split_pipe.len > 1 {
-			raw_args << split_pipe[1..]
-		}
-		// Extract any >, >>, <, or 2>&1 from the argument list.
-		args, rfile, rappend, stdin_file, merge_stderr := parse_redirect(raw_args)
-
-		mut intercept := true
-		mut next_index := index
-		if next_index + 1 == len {
-			intercept = false
-			next_index = -1
-		}
-		// If there is a file redirect we must capture stdout regardless of pipes.
-		effective_intercept    := intercept || rfile != ''
-		effective_redirect_out := effective_intercept
-		obj := Cmd_object{
-			cmd:                    cmd,
-			args:                   args,
-			aliases:                t.cmd.aliases,
-			intercept_stdio:        effective_intercept,
-			set_redirect_stdio:     effective_redirect_out,
-			next_pipe_index:        next_index,
-			redirect_file:          rfile,
-			redirect_append:        rappend,
-			stdin_file:             stdin_file,
-			merge_stderr_to_stdout: merge_stderr,
-		}
-		if index == 0 {
-			t.cmd = obj
-		} else {
-			t.pipe_cmds << obj
-		}
+	if words.len == 0 {
+		return error('syntax error: empty pipeline stage')
+	}
+	stage.cmd = words[0]
+	stage.args = words[1..].clone()
+	stages << stage
+	t.cmd = stages[0]
+	if stages.len > 1 {
+		t.pipe_cmds = stages[1..].clone()
 	}
 }
 
+// Start every stage before waiting so producers and consumers can stream.
+// Stderr inherits the terminal unless explicitly merged into stdout.
 fn (mut t Task) exec() !int {
-
-	/*
-	checking if we have any aliases defined first that we should
-	overwrite any actual given command with.
-	*/
-	t.handle_aliases()
-
-	/*
-	locate the given command in specifide paths.
-
-	@todo: should set some standard paths in the code..?
-	*/
-	t.cmd.find_exe() or {
-
-		return err
+	t.cmd.handle_aliases()
+	t.cmd.find_exe()!
+	t.cmd.internal_cmd_modifiers()
+	for i in 0 .. t.pipe_cmds.len {
+		t.pipe_cmds[i].handle_aliases()
+		t.pipe_cmds[i].find_exe()!
+		t.pipe_cmds[i].internal_cmd_modifiers()
 	}
-
-	/*
-	also find_exec for each pipe cmd following.
-
-	@todo: search for aliases before exec
-	*/
-	if t.pipe_cmds.len > 0 {
-		for i := 0; i < t.pipe_cmds.len; i++ {
-			t.pipe_cmds[i].find_exe() or {
-
-				return err
+	mut stages := [t.cmd]
+	stages << t.pipe_cmds
+	mut pids := []int{}
+	mut input_fd := -1
+	mut capture_fd := -1
+	mut finished := false
+	old_int := unsafe { C.signal(C.SIGINT, voidptr(1)) }
+	old_quit := unsafe { C.signal(C.SIGQUIT, voidptr(1)) }
+	defer {
+		if input_fd >= 0 { C.close(input_fd) }
+		if capture_fd >= 0 { C.close(capture_fd) }
+		if !finished {
+			for pid in pids {
+				C.kill(pid, C.SIGKILL)
 			}
 		}
+		for pid in pids {
+			C.vlsh_wait(pid)
+		}
+		unsafe { C.signal(C.SIGINT, old_int) }
+		unsafe { C.signal(C.SIGQUIT, old_quit) }
 	}
-
-	/*
-	apply certain flags to specific commands if they aren't set manually.
-	*/
-	t.cmd.internal_cmd_modifiers()
-
-	/*
-	also find internal_cmd_modifiers for each pipe cmd following.
-	*/
-	if t.pipe_cmds.len > 0 {
-		for i := 0; i < t.pipe_cmds.len; i++ {
-			t.pipe_cmds[i].internal_cmd_modifiers()
+	for index, stage in stages {
+		if stage.stdin_file != '' {
+			if input_fd >= 0 {
+				C.close(input_fd)
+				input_fd = -1
+			}
+			input_fd = C.vlsh_open(&char(stage.stdin_file.str), 0, 0)
+			if input_fd < 0 {
+				return error('cannot open input file: ${stage.stdin_file}')
+			}
+		}
+		mut output_fd := -1
+		mut next_fd := -1
+		if index < stages.len - 1 || (stages.len > 1 && stage.redirect_file == '') {
+			mut fds := [2]i32{}
+			if C.vlsh_pipe(&fds[0]) < 0 {
+				return error('cannot create pipeline')
+			}
+			next_fd = int(fds[0])
+			output_fd = int(fds[1])
+		}
+		if stage.redirect_file != '' {
+			if output_fd >= 0 { C.close(output_fd) }
+			output_fd = C.vlsh_open(&char(stage.redirect_file.str), 1, int(stage.redirect_append))
+			if output_fd < 0 {
+				if next_fd >= 0 { C.close(next_fd) }
+				return error('cannot open output file: ${stage.redirect_file}')
+			}
+		}
+		mut argv := []&char{}
+		argv << &char(stage.fullcmd.str)
+		for arg in stage.args {
+			argv << &char(arg.str)
+		}
+		argv << unsafe { &char(nil) }
+		pid := C.vlsh_spawn(&char(stage.fullcmd.str), argv.data, input_fd, output_fd,
+			int(stage.merge_stderr_to_stdout))
+		if input_fd >= 0 {
+			C.close(input_fd)
+			input_fd = -1
+		}
+		if output_fd >= 0 { C.close(output_fd) }
+		if pid < 0 {
+			if next_fd >= 0 { C.close(next_fd) }
+			return error('cannot start command: ${stage.cmd}')
+		}
+		pids << pid
+		if index < stages.len - 1 {
+			input_fd = next_fd
+		} else {
+			capture_fd = next_fd
 		}
 	}
-
-	/*
-	actually run the process and check for a possible
-	next pipe cmd to run. an index of -1 will terminate
-	a pipe sequence.
-	*/
-	mut index := t.run(t.cmd)
-
-	if index >= 0 && t.pipe_cmds.len > 0 {
+	if capture_fd >= 0 {
+		mut output := strings.new_builder(1024)
+		mut buf := []u8{len: 8192}
 		for {
-			index = t.run(t.pipe_cmds[index])
-			if index < 0 {
-				utils.debug('breaking')
+			n := C.vlsh_read(capture_fd, buf.data, usize(buf.len))
+			if n < 0 {
+				return error('cannot read pipeline output')
+			}
+			if n == 0 {
 				break
 			}
+			chunk := buf[..int(n)].bytestr()
+			output.write_string(chunk)
+			print(chunk)
 		}
+		t.last_output = output.str()
+		C.close(capture_fd)
+		capture_fd = -1
 	}
-
+	for pid in pids {
+		t.last_exit_code = C.vlsh_wait(pid)
+	}
+	finished = true
+	pids.clear()
 	return t.last_exit_code
 }
 
-fn (mut t Task) run(c Cmd_object) (int) {
-	mut child := os.new_process(c.fullcmd)
-
-	if c.args.len > 0 {
-		child.set_args(c.args.map(expand_tilde(it)))
-	}
-
-	// Resolve effective stdin: pipe input takes precedence, then < file.
-	mut effective_input := c.input
-	if effective_input == '' && c.stdin_file != '' {
-		effective_input = os.read_file(c.stdin_file) or {
-			utils.fail('cannot open ${c.stdin_file}: ${err.msg()}')
-			return c.next_pipe_index
+fn (mut c Cmd_object) handle_aliases() {
+	if alias_key_exists(c.cmd, c.aliases) {
+		original_args := c.args.clone()
+		alias_split := utils.parse_args(c.aliases[c.cmd])
+		if alias_split.len == 0 {
+			return
 		}
-	}
-
-	// Only redirect stdio through pipes when the command is part of a pipe
-	// chain, uses file redirection, or receives piped/file input.  Standalone
-	// commands inherit the terminal's file descriptors so that interactive
-	// programs (editors, pagers, ssh, etc.) work correctly.
-	needs_capture := effective_input != '' || c.redirect_file != '' || c.set_redirect_stdio
-
-	if needs_capture {
-		child.set_redirect_stdio()
-	}
-
-	child.run()
-
-	// After the fork the child already has SIG_DFL; now make the parent
-	// ignore SIGINT so that Ctrl+C only kills the child, not vlsh itself.
-	unsafe { C.signal(C.SIGINT, voidptr(1)) } // SIG_IGN
-
-	if needs_capture {
-		if effective_input != '' {
-			child.stdin_write(effective_input)
-		}
-
-		/*
-		Close the write-end of the stdin pipe after writing (or immediately
-		if there was no input). This signals EOF to the child so it stops
-		waiting for more input. Without this, commands like `wc` that read
-		until EOF will block forever.
-		*/
-		C.close(child.stdio_fd[0])
-		child.stdio_fd[0] = -1
-
-		if c.intercept_stdio && c.next_pipe_index >= 0 && c.redirect_file == '' {
-			mut output := child.stdout_slurp()
-			if c.merge_stderr_to_stdout {
-				output += child.stderr_slurp()
-			}
-			child.wait()
-			t.pipe_cmds[c.next_pipe_index].input = output
-		} else if c.redirect_file != '' {
-			mut output := child.stdout_slurp()
-			if c.merge_stderr_to_stdout {
-				output += child.stderr_slurp()
-			}
-			child.wait()
-			t.last_exit_code = child.code
-			flag := if c.redirect_append { 'a' } else { 'w' }
-			mut f := os.open_file(c.redirect_file, flag) or {
-				utils.fail('cannot open redirect file: ${err.msg()}')
-				return c.next_pipe_index
-			}
-			f.write_string(output) or {}
-			f.close()
-		} else {
-			mut output := child.stdout_slurp()
-			if c.merge_stderr_to_stdout {
-				output += child.stderr_slurp()
-			}
-			child.wait()
-			t.last_exit_code = child.code
-			t.last_output = output
-			print(output)
-		}
-	} else {
-		child.wait()
-		t.last_exit_code = child.code
-		t.last_output = ''
-	}
-
-	child.close()
-
-	// Restore default SIGINT handling so Ctrl+C works normally at the prompt.
-	unsafe { C.signal(C.SIGINT, voidptr(0)) } // SIG_DFL
-
-	return c.next_pipe_index
-}
-
-fn (mut t Task) handle_aliases() {
-	if alias_key_exists(t.cmd.cmd, t.cmd.aliases) {
-		alias_split := t.cmd.aliases[t.cmd.cmd].split(' ')
-		t.cmd.cmd = alias_split[0]
-		t.cmd.args << alias_split[1..]
-		utils.debug('found $t.cmd.cmd in $t.cmd.aliases')
-		utils.debug('will try to run $t.cmd.cmd with $t.cmd.args')
+		c.cmd = alias_split[0]
+		c.args = alias_split[1..].clone()
+		c.args << original_args
+		utils.debug('found $c.cmd in $c.aliases')
+		utils.debug('will try to run $c.cmd with $c.args')
 	}
 }
 
 fn alias_key_exists(key string, aliases map[string]string) bool {
 	for i, _ in aliases {
 		if i == key {
-
 			return true
 		}
 	}
@@ -419,7 +252,9 @@ fn alias_key_exists(key string, aliases map[string]string) bool {
 
 pub fn get_search_paths() []string {
 	paths := os.getenv('PATH').split(':').filter(it.len > 0)
-	if paths.len > 0 { return paths }
+	if paths.len > 0 {
+		return paths
+	}
 	return ['/usr/local/bin', '/usr/bin', '/bin']
 }
 
@@ -444,7 +279,7 @@ pub fn path_command_completions(prefix string) []string {
 				continue
 			}
 			full := '${dir}/${name}'
-			if !os.exists(full) {
+			if !os.is_file(full) || !os.is_executable(full) {
 				continue
 			}
 			seen[name] = true
@@ -458,9 +293,7 @@ pub fn path_command_completions(prefix string) []string {
 fn (mut c Cmd_object) find_exe() ! {
 	expanded_cmd := expand_tilde(c.cmd)
 
-	is_direct := expanded_cmd.starts_with('/') ||
-	             expanded_cmd.starts_with('./') ||
-	             expanded_cmd.starts_with('../')
+	is_direct := expanded_cmd.contains('/')
 
 	if is_direct {
 		if !os.exists(expanded_cmd) {
@@ -470,8 +303,11 @@ fn (mut c Cmd_object) find_exe() ! {
 			c.use_v_run(expanded_cmd)!
 			return
 		}
+		if !os.is_file(expanded_cmd) || !os.is_executable(expanded_cmd) {
+			return error('${expanded_cmd}: permission denied or not a regular file')
+		}
 		c.fullcmd = expanded_cmd
-		c.cmd     = expanded_cmd
+		c.cmd = expanded_cmd
 		return
 	}
 
@@ -487,20 +323,18 @@ fn (mut c Cmd_object) find_exe() ! {
 	search_paths := get_search_paths()
 	for path in search_paths {
 		full := '${path}/${c.cmd}'
-		if os.exists(full) {
+		if os.is_file(full) && os.is_executable(full) {
 			if full.ends_with('.vsh') {
 				c.use_v_run(full)!
 				return
 			}
 			c.fullcmd = full
-			c.path    = path
+			c.path = path
 			return
 		}
 	}
 
-	return error(
-		'${c.cmd} not found in defined aliases or in \$PATH'
-	)
+	return error('${c.cmd} not found in defined aliases or in \$PATH')
 }
 
 // use_v_run configures the command to execute a .vsh script via `v run`.
@@ -512,14 +346,16 @@ fn (mut c Cmd_object) use_v_run(vsh_path string) ! {
 	}
 	mut new_args := ['run', vsh_path]
 	new_args << c.args
-	c.args    = new_args
+	c.args = new_args
 	c.fullcmd = v_exe
 }
 
 fn find_v_exe() string {
 	for dir in get_search_paths() {
 		full := dir + '/v'
-		if os.exists(full) { return full }
+		if os.is_file(full) && os.is_executable(full) {
+			return full
+		}
 	}
 	return ''
 }
