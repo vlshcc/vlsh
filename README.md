@@ -6,9 +6,9 @@ to read, modify, and extend.
 
 ### Features at a glance
 
-- **Pipes, redirection, and command chaining** — `cmd1 | cmd2`, `> file`, `>> file`, `< file`, and `2>&1` (merge stderr into stdout); AND-chains (`&&`), OR-chains (`||`), and unconditional sequences (`;`)
+- **Pipes, redirection, and command chaining** — `cmd1 | cmd2`, `> file`, `>> file`, `< file`, `2> file`, and `2>&1` (merge stderr into stdout); AND-chains (`&&`), OR-chains (`||`), and unconditional sequences (`;`)
 - **Glob expansion** — `*.v`, `./*.deb`, `~/docs/**` expanded before execution
-- **Tilde and parameter expansion** — `~/path`, `$VAR`, `${var:-word}`, `${#var}`, `${var#pat}` / `${var%pat}` (glob `*`/`?` in `pat`), nested `${…}`, `VAR=val cmd`; unquoted words split on session **`IFS`** (default space/tab/newline) (see [docs/posix-inventory.md](docs/posix-inventory.md))
+- **Tilde and parameter expansion** — `~/path`, `$VAR`, `${var:-word}`, `${#var}`, `${var#pat}` / `${var%pat}` (glob `*`/`?` in `pat`), nested `${…}`, `VAR=val cmd`; unquoted expansions split on session **`IFS`** (default space/tab/newline) (see [docs/posix-inventory.md](docs/posix-inventory.md))
 - **Command history** — up/down arrow browsing and `Ctrl+R` incremental search;
   shared across all sessions (last 5000 entries in `~/.vlsh_history`);   bash-style **`!!`**, **`!$`**, **`!n`**, **`!-n`**, **`!prefix`**, **`!?sub`**
   (see docs), interactive prompt only
@@ -126,15 +126,18 @@ v run .
 
 ```sh
 ./vlsh -c 'printf hello | cat'
-./vlsh path/to/script
+./vlsh path/to/script arg1 arg2
+./vlsh -c 'printf "%s\n" "$0" "$@"' name arg1 arg2
 printf 'echo hello\nfalse\n' | ./vlsh
 ./vlsh --version
 ```
 
 Batch execution returns the last command's exit code and skips prompts, history,
 startup exports, and automatic plugin loading. Existing aliases are read from
-`~/.vlshrc`; batch mode does not create that file. Scripts currently execute one
-line at a time and support the documented shell subset.
+`~/.vlshrc`; batch mode does not create that file. Scripts support multiline
+pipelines, conditional lists, quoted words, and backslash continuations. An
+unquoted `#` at the start of a token introduces a comment. The shell supports
+the simple-command subset described below.
 
 ### System-wide install
 
@@ -211,14 +214,15 @@ alias vim=nvim
 ### Architecture overview
 
 ```
-vlsh.v          – main entry point, prompt rendering, read-eval loop
+vlsh.v          – main entry point, prompt rendering, builtins
+evaluator.v     – evaluates command lists, expands words, and dispatches commands
 cfg/cfg.v       – config file (~/.vlshrc) parsing, aliases, paths, style
 cmds/cmds.v     – built-in commands: help, cd
 cmds/ls.v       – built-in colorised ls
 cmds/cp.v       – built-in overwrite-copy (ocp)
 exec/exec.v     – concurrent pipeline execution and I/O redirection
 exec/process_helpers.h – POSIX process, pipe, signal, and wait helpers
-shellops/      – command-list splitting and syntax validation
+shellops/       – parser for lists of simple commands and pipelines
 tests/         – shell, installation, and packaging integration tests
 mux/mux.v       – terminal multiplexer entry point and event loop
 mux/pane.v      – per-pane VT100 parser and cell grid
@@ -227,7 +231,7 @@ mux/render.v    – grid-to-terminal renderer
 mux/input.v     – key-sequence parser for mux prefix bindings
 mux/pty.v       – PTY helpers (thin wrappers around C functions)
 mux/pty_helpers.h – C helpers: raw mode, winsize, select, forkpty, exec
-utils/utils.v   – shared helpers: parse_args, fail/warn/ok/debug
+utils/          – lexer, word expansion, shell variables, and shared helpers
 plugins/        – plugin loader and hook dispatcher
 ```
 
@@ -253,11 +257,12 @@ lines use the config syntax below.
 | `aliases list` | List all defined aliases |
 | `aliases add <name>=<cmd>` | Add or update an alias |
 | `aliases remove <name>` | Remove an alias |
+| `: [args…]` | Expand arguments and apply redirections, then return success |
 | `cd [dir]` | Change directory; `~` and `~/path` expand to `$HOME`; home if omitted; `cd -` returns to the previous directory |
-| `echo [args…]` | Print arguments; same parameter expansion as other commands (`$VAR`, `${var:-word}`, `${#var}`, …); supports `>` / `>>` |
-| `exit [N]` | Exit the shell with optional status code (default 0) |
-| `export [NAME=value …]` | Set environment variables; with no args, lists all exported variables |
-| `help [cmd]` | Show command list, or detailed help for a specific command |
+| `echo [args…]` | Print arguments |
+| `exit [N]` | Exit the shell with an optional status code (defaults to the last status) |
+| `export [NAME[=value] …]` | Mark variables for export to child processes, optionally assigning values; `export -p` lists exported values as shell commands |
+| `help [cmd]` | Show commands or detailed command help; `help syntax` explains the supported shell language |
 | `ls [dir]` | Colorised directory listing (falls through to system `ls` when flags are passed) |
 | `mux` | Enter terminal multiplexer mode |
 | `ocp <src> <dst>` | Copy file, overwriting destination |
@@ -274,6 +279,7 @@ lines use the config syntax below.
 | `plugins delete <name>` | Delete an installed plugin |
 | `plugins reinstall <name>` | Remove the local plugin and install the latest from the remote repository |
 | `source <file>` / `. <file>` | Execute a script in the current shell context (respects `#` comments and blank lines) |
+| `set -- [args…]` / `shift [N]` | Replace positional parameters or remove the first `N` (default 1) |
 | `style list` | Show current style/colour settings |
 | `style set <key> <r> <g> <b>` | Set a prompt colour (RGB 0–255) |
 | `unset <NAME> …` | Remove one or more environment variables |
@@ -292,12 +298,15 @@ echo "hello" > file.txt
 echo "world" >> file.txt
 ```
 
-**Merging stderr into stdout (`2>&1`)** – for external commands, the token `2>&1` sends stderr to the command’s stdout, including pipes and output files. Typical use:
+**Redirecting stderr** – `2> file` sends stderr to a file, and `2>&1` duplicates the current stdout onto stderr. Both work with builtins and external commands:
 ```
 some_cmd > log.txt 2>&1
 some_cmd 2>&1 | grep -i error
 ```
-Pipeline stages run concurrently. `2>&1` merges stderr into the same OS stream as stdout, preserving the order in which the command writes to that stream. Without `2>&1`, stderr remains visible separately. Descriptor duplication order (such as `2>&1 > file`) is not yet modeled; see the inventory.
+Redirections apply from left to right, after setting up any pipeline.
+`cmd > log.txt 2>&1` sends both streams to the file; `cmd 2>&1 > log.txt`
+sends stderr to the original stdout. Descriptors 0–9 can be opened, duplicated,
+or closed. A standalone builtin restores the original descriptors when it finishes.
 
 **Input redirection** – feed a file into a command's stdin with `<`:
 ```
@@ -326,14 +335,28 @@ make ; make install
 vi ~/.config/nvim/init.vim
 ```
 
-**Environment-variable prefix** – set variables only for the duration of one command; previous values are restored afterwards:
+**Environment-variable prefix** – scope variables to an external command or a regular builtin; previous values are restored afterwards:
 ```
 FIELD_LIST='used,avail' df -h --no-sync .
 ```
 
 Assignment-only commands such as `NAME=value` persist in the current session.
+New variables stay local to the shell until `export NAME`; an already exported
+variable stays exported when reassigned. Each pipeline stage has its own prefix
+assignments. Prefix assignments on POSIX special builtins such as `export` and `.` persist in the shell.
 
-**Parameter expansion** – Applied when parsing command words (including arguments to `echo` and other commands): simple `$VAR`, `$$`, `$?`, `$0`, and POSIX-style brace forms such as `${VAR}`, `${#VAR}` (length), `${var:-word}` (default if unset or empty), `${var:=word}` (assign default), `${var:+word}` (alternate if set), `${var:?word}` (diagnostic if unset; vlsh prints to stderr and substitutes empty—see [docs/posix-inventory.md](docs/posix-inventory.md)), `${var#pat}` / `${var##pat}` (remove shortest / longest matching prefix; `*` and `?` glob in `pat`; `[]` classes not implemented yet), and `${var%pat}` / `${var%%pat}` (shortest / longest suffix). Nested `${…}` is supported. **Word splitting:** unquoted tokens are split on the session **`IFS`** (default space, tab, newline when `IFS` is unset); see the inventory for lexer vs strict POSIX field-splitting. Text in **single quotes** is literal (no expansion); **double quotes** allow expansion.
+**Parameter expansion** – Supports `$VAR`, `$$`, `$?`, `$0`, positional
+parameters (`$1`, `${10}`, `$#`, `"$@"`), and brace forms such as `${VAR}`,
+`${#VAR}`, `${var:-word}`, `${var:=word}`, `${var:+word}`, `${var:?word}`,
+and prefix/suffix trimming. Omitting the colon makes the default operators test
+for unset values only. A required parameter error stops the current input; inside a pipeline it stops that stage.
+Single quotes preserve literal text; double quotes allow expansion and preserve
+the result as one field (except for `"$@"`).
+
+**Field splitting** – Unquoted expansion results split on `IFS` (space, tab,
+and newline when unset). Empty `IFS` disables splitting, and literal source
+text is never split by `IFS`. Assignment values and redirection filenames
+are kept as single values. Pathname expansion follows field splitting.
 
 **Last exit status** – `$?` holds the exit code of the most recently run command and is updated after every command, including each step in `&&` / `||` / `;` chains:
 ```
@@ -393,11 +416,16 @@ The goal is **option (b)**: grow a **documented, tested subset** of POSIX *sh* b
 
 **Suggested phases**
 
-1. **Stabilise the current surface** — Treat parsing and execution that already exists as the contract: tokenisation and quotes (`parse_args`), command lists (`split_commands` for `&&` / `||` / `;`), `$` expansion (`expand_vars`), globs, leading `VAR=value` assignments, builtins such as `export`, `unset`, `cd`, `source` / `.`, pipes, and redirection. Extend **`make test`** whenever behavior is fixed or specified more precisely (see `utils/*_test.v`, `shellops/*_test.v`, `exec/*_test.v`). A **feature inventory** (what is implemented vs not) is maintained in [`docs/posix-inventory.md`](docs/posix-inventory.md).
+1. **Stabilise the current surface** — Keep tests for tokenisation and quotes (`lex`), command lists (`parse_commands`), `$` expansion (`expand_vars`), globs, leading `VAR=value` assignments, builtins such as `export`, `unset`, `cd`, `source` / `.`, pipes, and redirection. Extend **`make test`** whenever behavior is fixed or specified more precisely (see `utils/*_test.v`, `shellops/*_test.v`, `exec/*_test.v`). A **feature inventory** (what is implemented vs not) is maintained in [`docs/posix-inventory.md`](docs/posix-inventory.md).
 
-2. **Parameter expansion and word splitting** — Implemented: `${name}`, `${#name}`, `${var:-word}`, `${var:=word}`, `${var:+word}`, `${var:?word}` (partial vs strict POSIX—see inventory), `${var#pat}` / `${var##pat}` / `${var%pat}` / `${var%%pat}` (glob `*`/`?` in `pat`; no `[]` yet), nested `${…}`. **IFS:** `parse_args` uses the session `IFS` when set (non-empty); default space/tab/newline when unset; see inventory for lexer vs post-expansion nuances. Implementation: `expand_vars` / `expand_brace_param`, `ifs_chars_for_split` / `parse_args` in `utils/utils.v`; tests in `utils/utils_test.v`. README and `help` describe user-facing behaviour.
+2. **Parameter expansion and word splitting** — The lexer preserves source
+   spelling, then expansion distinguishes arguments, assignments, and
+   redirection targets. Continue filling the pattern matching and expansion
+   gaps in the inventory.
 
-3. **Shell grammar** — `for` / `while` / `until` / `case`, functions, subshells, and here-documents are large; introduce one construct at a time with tests.
+3. **Shell grammar** — The parser handles lists of simple commands and pipelines.
+   Command substitution, arithmetic expansion, here-documents, compound commands,
+   functions, and subshells remain candidates for separate increments.
 
 4. **Hardening** — Port or adapt individual cases from public POSIX-style shell test suites where practical; full certification is not the target.
 
@@ -423,7 +451,7 @@ grep pattern < file.txt | wc -l
 
 #### Exit status (`$?`)
 
-`$?` is set after every command — including each step in a chain — and can be read with `echo $?`. It is initialised to `0` when the shell starts.
+`$?` is set after every command — including each step in a chain — and can be read with `echo $?`. It is initialised to `0` when the shell starts. A command that cannot be found returns 127; one found but not executable returns 126.
 
 #### `export` and `unset`
 
@@ -439,14 +467,14 @@ unset EDITOR                 # remove a variable from the environment
 
 #### `source` / `.`
 
-Execute a script file in the current shell context. The file is read line by line; blank lines and lines beginning with `#` are skipped. The return value is the exit code of the last command in the file.
+Execute a script file in the current shell context. It uses the same command parser as batch mode, including multiline pipelines and comments. The return value is the exit code of the last command in the file.
 
 ```
-source ~/.vlshrc
-. ~/.vlshrc          # POSIX dot-command synonym
+source ./session.sh
+. ./session.sh       # POSIX dot-command synonym
 ```
 
-`export` and `unset` lines in `~/.vlshrc` are executed automatically at startup. You can use `source` to reload your config live after editing it.
+`export` and `unset` lines in `~/.vlshrc` are executed automatically at startup. Use `source` for files containing shell commands. Config-only `alias` and `style` directives are handled by the configuration loader.
 
 #### `cd` improvements
 
@@ -747,7 +775,7 @@ The status bar at the top shows `vlsh mux` on the left and the live pane count o
 
 **`cfg`** – `get() !Cfg`, `aliases() !map[string]string`, `style() !map[string][]int`, `add_alias`, `remove_alias`, `set_style`
 
-**`exec`** – `Task.prepare_task() !int` runs a command string (with pipes, redirection, tilde expansion) and returns the exit code
+**`exec`** – `Task.prepare_task() !int` executes expanded tokens; `Task.run_stages` executes prepared pipeline stages with ordered redirections and returns the final status
 
 **`utils`** – `parse_tokens(string) []ShellToken` retains operator provenance; `parse_args(string) []string` tokenises a command line respecting single/double quotes; `fail/warn/ok/debug` for formatted output
 

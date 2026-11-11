@@ -172,6 +172,116 @@ class ShellTests(unittest.TestCase):
                 result = self.run_shell(command)
                 self.assertEqual(result[:2], (2, ''), result)
 
+    def test_comments_start_only_at_unquoted_token_boundaries(self):
+        self.assert_shell(r"""printf '%s\n' a#b "#quoted" \#escaped # ' | ;""",
+                          'a#b\n#quoted\n#escaped\n')
+        self.assert_shell('echo first; # ignore ||\necho second # ignore > missing',
+                          'first\nsecond\n')
+
+    def test_complete_commands_across_lines(self):
+        script = "printf '%s\\n' one | # continue\n  cat &&\n  echo tw\\\no\nprintf '%s\\n' 'three\nfour'\n"
+        expected = 'one\ntwo\nthree\nfour\n'
+        self.assert_shell(script, expected)
+        self.assertEqual(self.run_shell(args=[], stdin=script), (0, expected, ''))
+
+    def test_not_found_and_not_executable_statuses(self):
+        (self.cwd / 'unusable').write_text('not executable')
+        self.assert_shell('vlsh_nonexistent', code=127)
+        self.assert_shell('./unusable', code=126)
+        self.assert_shell('PATH=.:/bin unusable', code=126)
+        self.assert_shell('true | vlsh_nonexistent', code=127)
+        self.assert_shell('vlsh_nonexistent | cat', code=0)
+        self.assert_shell('""', code=127)
+
+    def test_shell_variables_are_exported_only_when_requested(self):
+        self.assert_shell(
+            """VLSH_X=local; echo "$VLSH_X"; sh -c 'echo "${VLSH_X-unset}"'; """
+            """export VLSH_X; sh -c 'echo "$VLSH_X"'; VLSH_X=updated; """
+            """sh -c 'echo "$VLSH_X"'; unset VLSH_X; sh -c 'echo "${VLSH_X-unset}"'""",
+            'local\nunset\nlocal\nupdated\nunset\n')
+        self.assert_shell("export VLSH_X; VLSH_X=late; sh -c 'echo \"$VLSH_X\"'", 'late\n')
+
+    def test_prefix_assignments_are_scalar_and_scoped_per_pipeline_stage(self):
+        self.assert_shell(
+            """VLSH_X='one two'; VLSH_A=$VLSH_X VLSH_B=$VLSH_A sh -c 'printf "%s\\n" "$VLSH_B"' """
+            """| sh -c 'cat; echo "${VLSH_A-unset}"'; echo "${VLSH_B-unset}" """,
+            'one two\nunset\nunset\n')
+        self.assert_shell("""VLSH_X='one two'; export VLSH_Y=$VLSH_X; sh -c 'echo "$VLSH_Y"'""",
+                          'one two\n')
+
+    def test_field_splitting_preserves_quoting_and_literal_text(self):
+        self.assert_shell(
+            """VLSH_X='one two'; printf '<%s>\\n' pre${VLSH_X}post "$VLSH_X" """,
+            '<preone>\n<twopost>\n<one two>\n')
+        self.assert_shell(
+            """unset VLSH_X; printf '<%s>\\n' $VLSH_X "$VLSH_X" '' end""",
+            '<>\n<>\n<end>\n')
+        self.assert_shell(
+            """IFS=' :'; VLSH_X=' one : :two: '; printf '<%s>\\n' a:b $VLSH_X""",
+            '<a:b>\n<one>\n<>\n<two>\n')
+        self.assert_shell("""IFS=; VLSH_X='one two'; printf '<%s>\\n' $VLSH_X end""",
+                          '<one two>\n<end>\n')
+
+    def test_pathname_expansion_preserves_partially_quoted_patterns(self):
+        for name in ('foo[1].txt', 'foo[2].txt', 'foo1.txt', '.hidden.txt'):
+            (self.cwd / name).touch()
+        self.assert_shell("""printf '%s\\n' 'foo['[12]'].txt' *.txt""",
+                          'foo[1].txt\nfoo[2].txt\nfoo1.txt\nfoo[1].txt\nfoo[2].txt\n')
+
+    def test_positional_parameters_preserve_argument_boundaries(self):
+        result = self.run_shell(args=[
+            '-c', """printf '%s\\n' "$0" "$#" "$@"; shift; printf '<%s>\\n' "$1"; """
+                  """set --; printf '%s\\n' "$@" done""", 'name', 'a b', '',
+        ])
+        self.assertEqual(result, (0, 'name\n2\na b\n\n<>\ndone\n', ''))
+        (self.cwd / 'script').write_text('printf "%s\\n" "$0" "$1"')
+        self.assertEqual(self.run_shell(args=['script', 'a b']), (0, 'script\na b\n', ''))
+
+    def test_parameter_defaults_and_expansion_errors(self):
+        self.assert_shell(
+            """unset VLSH_X; VLSH_Y=''; printf '<%s>\\n' "${VLSH_X-default}" "${VLSH_Y-default}" """
+            """"${VLSH_Y:-default}"; VLSH_X=keep; echo "${VLSH_X:-${VLSH_Y:?unused}}" """,
+            '<default>\n<>\n<default>\nkeep\n')
+        code, out, err = self.run_shell('unset VLSH_X; echo "${VLSH_X:?required}"; echo skipped')
+        self.assertEqual((code, out), (2, ''))
+        self.assertIn('VLSH_X: required', err)
+
+    def test_redirections_are_ordered_for_external_commands(self):
+        self.assert_shell(
+            """sh -c 'printf out; printf err >&2' 2>&1 > first; """
+            """sh -c 'printf out; printf err >&2' > second 2>&1; cat first second""",
+            'erroutouterr')
+        self.assert_shell("sh -c 'printf err >&2' 2> errors; cat errors", 'err')
+        self.assert_shell("printf data > created > last; cat last", 'data')
+        self.assertEqual((self.cwd / 'created').read_bytes(), b'')
+
+    def test_builtin_redirections_restore_shell_descriptors(self):
+        (self.cwd / 'sub').mkdir()
+        result = self.assert_shell(
+            """cd sub > created; pwd; cd missing 2> errors; echo ok; """
+            """VLSH_FILE='with spaces'; echo recorded > $VLSH_FILE; cat 'with spaces'""",
+            f'{self.cwd / "sub"}\nok\nrecorded\n')
+        self.assertEqual(result[2], '')
+        self.assertIn('missing', (self.cwd / 'sub' / 'errors').read_text())
+        self.assertEqual((self.cwd / 'created').read_bytes(), b'')
+        self.assert_shell('cd sub > missing/out; pwd', f'{self.cwd}\n')
+
+    def test_builtins_in_pipelines_leave_parent_state_alone(self):
+        self.assert_shell(
+            """export VLSH_X=before; export VLSH_X=after | cat; echo "$VLSH_X"; """
+            """cd / | cat; pwd; echo data | sed 's|data|pipeline|' """,
+            f'before\n{self.cwd}\npipeline\n')
+
+    def test_pipeline_expansion_side_effects_stay_in_the_stage(self):
+        result = self.assert_shell(
+            """unset VLSH_X; echo "${VLSH_X=inside}" | cat; echo "${VLSH_X-unset}"; """
+            """export VLSH_X=; printf "%s" "${VLSH_X:=changed}" | cat; """
+            """sh -c 'printf "<%s>\\n" "$VLSH_X"'; unset VLSH_Y; """
+            """echo "${VLSH_Y:?missing}" | cat; echo survived""",
+            'inside\nunset\nchanged<>\nsurvived\n')
+        self.assertIn('VLSH_Y: missing', result[2])
+        self.assert_shell('false; true | exit', code=1)
+
     def test_interactive_cancel_and_terminal_restore(self):
         pid, master = pty.fork()
         if pid == 0:

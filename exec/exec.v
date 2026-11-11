@@ -8,8 +8,7 @@ import utils
 #include "@VMODROOT/exec/process_helpers.h"
 
 fn C.vlsh_pipe(fds &i32) int
-fn C.vlsh_open(path &char, output int, append int) int
-fn C.vlsh_spawn(path &char, argv &&char, input int, output int, merge int) int
+fn C.vlsh_spawn(path &char, argv &&char, env &&char, input int, output int, next_read int, ops &C.VlshRedirect, count int, failure int, message &char) int
 fn C.vlsh_wait(pid int) int
 fn C.vlsh_read(fd int, buffer voidptr, size usize) int
 
@@ -17,15 +16,18 @@ fn C.signal(signum int, handler voidptr) voidptr
 
 pub struct Cmd_object {
 pub mut:
-	cmd                    string
-	fullcmd                string
-	args                   []string
-	path                   string
-	aliases                map[string]string
-	redirect_file          string
-	redirect_append        bool
-	stdin_file             string
-	merge_stderr_to_stdout bool
+	cmd         string
+	fullcmd     string
+	args        []string
+	path        string
+	aliases     map[string]string
+	redirects   []Redirect
+	assignments map[string]string
+	search_path ?string
+	no_command  bool
+	environment ?map[string]string
+	failure     int
+	diagnostic  string
 }
 
 pub struct Task {
@@ -63,8 +65,10 @@ fn (mut t Task) parse_pipe() ! {
 		// Compatibility for callers that already supply parsed argument strings.
 		tokens << utils.ShellToken{ text: t.cmd.cmd }
 		for arg in t.cmd.args {
-			tokens << utils.ShellToken{ text: expand_tilde(arg), operator: arg in ['|', '>', '>>',
-				'<', '2>&1'] }
+			tokens << utils.ShellToken{
+				text:     expand_tilde(arg)
+				operator: arg in ['|', '>', '>>', '<', '2>&1']
+			}
 		}
 	}
 	mut stages := []Cmd_object{}
@@ -82,19 +86,12 @@ fn (mut t Task) parse_pipe() ! {
 			stages << stage
 			stage = Cmd_object{ aliases: t.cmd.aliases }
 			words = []string{}
-		} else if token.operator && token.text == '2>&1' {
-			stage.merge_stderr_to_stdout = true
-		} else if token.operator && token.text in ['>', '>>', '<'] {
-			if i + 1 >= tokens.len || tokens[i + 1].operator || tokens[i + 1].text == '' {
+		} else if token.operator && utils.is_redirection(token.text) {
+			if i + 1 >= tokens.len || tokens[i + 1].operator {
 				return error('syntax error: missing redirection target')
 			}
 			i++
-			if token.text == '<' {
-				stage.stdin_file = tokens[i].text
-			} else {
-				stage.redirect_file = tokens[i].text
-				stage.redirect_append = token.text == '>>'
-			}
+			stage.redirects << parse_redirect(token.text, tokens[i].text)!
 		} else {
 			words << token.text
 		}
@@ -115,16 +112,14 @@ fn (mut t Task) parse_pipe() ! {
 // Start every stage before waiting so producers and consumers can stream.
 // Stderr inherits the terminal unless explicitly merged into stdout.
 fn (mut t Task) exec() !int {
-	t.cmd.handle_aliases()
-	t.cmd.find_exe()!
-	t.cmd.internal_cmd_modifiers()
-	for i in 0 .. t.pipe_cmds.len {
-		t.pipe_cmds[i].handle_aliases()
-		t.pipe_cmds[i].find_exe()!
-		t.pipe_cmds[i].internal_cmd_modifiers()
-	}
 	mut stages := [t.cmd]
 	stages << t.pipe_cmds
+	return t.run_stages(stages)
+}
+
+pub fn (mut t Task) run_stages(stages []Cmd_object) !int {
+	t.last_output = ''
+	t.last_exit_code = 0
 	mut pids := []int{}
 	mut input_fd := -1
 	mut capture_fd := -1
@@ -145,20 +140,24 @@ fn (mut t Task) exec() !int {
 		unsafe { C.signal(C.SIGINT, old_int) }
 		unsafe { C.signal(C.SIGQUIT, old_quit) }
 	}
-	for index, stage in stages {
-		if stage.stdin_file != '' {
-			if input_fd >= 0 {
-				C.close(input_fd)
-				input_fd = -1
+	for index, command in stages {
+		mut stage := command
+		mut failure := stage.failure
+		mut message := stage.diagnostic
+		if failure == 0 && stage.fullcmd == '' && !stage.no_command {
+			stage.handle_aliases()
+			stage.find_exe() or {
+				failure = err.code()
+				if failure == 0 {
+					failure = 126
+				}
+				message = 'vlsh: ${err.msg()}\n'
 			}
-			input_fd = C.vlsh_open(&char(stage.stdin_file.str), 0, 0)
-			if input_fd < 0 {
-				return error('cannot open input file: ${stage.stdin_file}')
-			}
+			if failure == 0 { stage.internal_cmd_modifiers() }
 		}
 		mut output_fd := -1
 		mut next_fd := -1
-		if index < stages.len - 1 || (stages.len > 1 && stage.redirect_file == '') {
+		if stages.len > 1 {
 			mut fds := [2]i32{}
 			if C.vlsh_pipe(&fds[0]) < 0 {
 				return error('cannot create pipeline')
@@ -166,22 +165,26 @@ fn (mut t Task) exec() !int {
 			next_fd = int(fds[0])
 			output_fd = int(fds[1])
 		}
-		if stage.redirect_file != '' {
-			if output_fd >= 0 { C.close(output_fd) }
-			output_fd = C.vlsh_open(&char(stage.redirect_file.str), 1, int(stage.redirect_append))
-			if output_fd < 0 {
-				if next_fd >= 0 { C.close(next_fd) }
-				return error('cannot open output file: ${stage.redirect_file}')
-			}
-		}
 		mut argv := []&char{}
 		argv << &char(stage.fullcmd.str)
 		for arg in stage.args {
 			argv << &char(arg.str)
 		}
 		argv << unsafe { &char(nil) }
-		pid := C.vlsh_spawn(&char(stage.fullcmd.str), argv.data, input_fd, output_fd,
-			int(stage.merge_stderr_to_stdout))
+		mut child_env := if env := stage.environment { env.clone() } else { os.environ() }
+		for key, value in stage.assignments {
+			child_env[key] = value
+		}
+		entries := child_env.keys().map('${it}=${child_env[it]}')
+		mut env := []&char{cap: entries.len + 1}
+		for entry in entries {
+			env << &char(entry.str)
+		}
+		env << unsafe { &char(nil) }
+		ops := c_redirects(stage.redirects)
+		path := if stage.fullcmd == '' { unsafe { &char(nil) } } else { &char(stage.fullcmd.str) }
+		pid := C.vlsh_spawn(path, argv.data, env.data, input_fd, output_fd, next_fd,
+			ops.data, ops.len, failure, &char(message.str))
 		if input_fd >= 0 {
 			C.close(input_fd)
 			input_fd = -1
@@ -291,20 +294,20 @@ pub fn path_command_completions(prefix string) []string {
 }
 
 fn (mut c Cmd_object) find_exe() ! {
-	expanded_cmd := expand_tilde(c.cmd)
+	expanded_cmd := c.cmd
 
 	is_direct := expanded_cmd.contains('/')
 
 	if is_direct {
 		if !os.exists(expanded_cmd) {
-			return error('${expanded_cmd}: no such file or directory')
+			return error_with_code('${expanded_cmd}: no such file or directory', 127)
 		}
 		if expanded_cmd.ends_with('.vsh') {
 			c.use_v_run(expanded_cmd)!
 			return
 		}
 		if !os.is_file(expanded_cmd) || !os.is_executable(expanded_cmd) {
-			return error('${expanded_cmd}: permission denied or not a regular file')
+			return error_with_code('${expanded_cmd}: permission denied or not a regular file', 126)
 		}
 		c.fullcmd = expanded_cmd
 		c.cmd = expanded_cmd
@@ -314,27 +317,36 @@ fn (mut c Cmd_object) find_exe() ! {
 	if expanded_cmd.ends_with('.vsh') {
 		rel := './' + expanded_cmd
 		if !os.exists(rel) {
-			return error('${expanded_cmd}: no such file or directory')
+			return error_with_code('${expanded_cmd}: no such file or directory', 127)
 		}
 		c.use_v_run(rel)!
 		return
 	}
 
-	search_paths := get_search_paths()
-	for path in search_paths {
-		full := '${path}/${c.cmd}'
+	if expanded_cmd == '' {
+		return error_with_code('empty command name', 127)
+	}
+	search_paths := if path := c.search_path { path.split(':') } else { get_search_paths() }
+	mut denied := false
+	for dir in search_paths {
+		full := if dir == '' { './${c.cmd}' } else { '${dir}/${c.cmd}' }
 		if os.is_file(full) && os.is_executable(full) {
 			if full.ends_with('.vsh') {
 				c.use_v_run(full)!
 				return
 			}
 			c.fullcmd = full
-			c.path = path
+			c.path = dir
 			return
 		}
+		if os.exists(full) {
+			denied = true
+		}
 	}
-
-	return error('${c.cmd} not found in defined aliases or in \$PATH')
+	if denied {
+		return error_with_code('${c.cmd}: permission denied or not a regular file', 126)
+	}
+	return error_with_code('${c.cmd}: command not found', 127)
 }
 
 // use_v_run configures the command to execute a .vsh script via `v run`.

@@ -7,11 +7,13 @@ Use `make test-unit`, `make test-install`, `make test-packaging`, or `make test-
 Override the compiler with `make test V=/path/to/v` and Python with `PYTHON=python3`.
 
 Integration tests run in temporary directories with a temporary HOME. They cover
-quoting and empty arguments, operators inside arguments, variable assignments,
-command lists, scripts, redirection failures, executable lookup, alias cycles,
+quoting and empty arguments, comments, field splitting, positional parameters,
+shell-local variables and export, multiline command lists, ordered redirections,
+builtin isolation, command lookup exit statuses, alias cycles,
 large pipelines, early consumer exit, stderr, exit status, Ctrl+C, and interactive
 terminal restoration. Every subprocess has a timeout; a stuck pipeline fails the
-test and its process group is killed. Tests do not need network access or plugins.
+test and its process group is killed. Tests do not need network access, plugins, or a reference shell. POSIX cases
+assert expected outputs, exit statuses, and file contents directly.
 
 Installation tests use a temporary binary, prefix, and shells registry. They
 check registration, repeat installs, missing final newlines, staged installs,

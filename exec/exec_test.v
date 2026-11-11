@@ -249,10 +249,11 @@ fn test_parse_pipeline_preserves_literal_operators_and_empty_arguments() {
 fn test_parse_pipeline_extracts_redirections() {
 	mut task := Task{ tokens: utils.parse_tokens('cat < input | cat >> output 2>&1') }
 	task.parse_pipe()!
-	assert task.cmd.stdin_file == 'input'
-	assert task.pipe_cmds[0].redirect_file == 'output'
-	assert task.pipe_cmds[0].redirect_append
-	assert task.pipe_cmds[0].merge_stderr_to_stdout
+	assert task.cmd.redirects == [Redirect{ fd: 0, path: 'input', op: .input }]
+	assert task.pipe_cmds[0].redirects == [
+		Redirect{ fd: 1, path: 'output', op: .append },
+		Redirect{ fd: 2, op: .duplicate, target: 1 },
+	]
 }
 
 fn test_parse_pipeline_rejects_missing_stage_and_redirection_target() {

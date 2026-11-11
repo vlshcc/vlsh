@@ -195,11 +195,11 @@ fn test_parse_args_preserves_utf8_in_tokens() {
 	assert parse_args('echo åäö') == ['echo', 'åäö']
 }
 
-fn test_parse_args_ifs_colon_splits() {
+fn test_parse_args_ifs_does_not_split_literal_colons() {
 	had, old := save_ifs()
 	os.setenv('IFS', ':', true)
 	defer { restore_ifs(had, old) }
-	assert parse_args('a:b:c') == ['a', 'b', 'c']
+	assert parse_args('echo a:b:c') == ['echo', 'a:b:c']
 }
 
 fn test_expand_history_bangs_no_double_bang() {
@@ -305,8 +305,9 @@ fn test_parse_args_ifs_colon_empty_field() {
 	had, old := save_ifs()
 	os.setenv('IFS', ':', true)
 	defer { restore_ifs(had, old) }
-	assert parse_args(':a') == ['', 'a']
-	assert parse_args('a::b') == ['a', '', 'b']
+	os.setenv('VLSH_FIELDS', ':a::b:', true)
+	defer { os.unsetenv('VLSH_FIELDS') }
+	assert parse_args('echo \$VLSH_FIELDS') == ['echo', '', 'a', '', 'b']
 }
 
 fn test_parse_args_empty_string() {
@@ -539,9 +540,9 @@ fn test_parse_tokens_keeps_operator_provenance() {
 	assert tokens[4].operator
 }
 
-fn test_parse_args_keeps_braced_expansion_with_spaces() {
+fn test_parse_args_splits_unquoted_braced_expansion_with_spaces() {
 	os.unsetenv('VLSH_DEFAULT')
-	assert parse_args('echo \${VLSH_DEFAULT:-hello world}') == ['echo', 'hello world']
+	assert parse_args('echo \${VLSH_DEFAULT:-hello world}') == ['echo', 'hello', 'world']
 }
 
 fn test_glob_question_handles_partial_utf8_without_panic() {

@@ -20,7 +20,9 @@ Legend: **yes** = supported for typical use, **partial** = gaps/edge cases, **no
 
 | Feature | Status | Notes |
 |--------|--------|--------|
-| Field splitting on `IFS` (space/tab/newline) | partial | Default `IFS` (space/tab/newline) when unset; custom non-whitespace `IFS` splits with empty fields; empty `IFS` in env still uses default whitespace for lexer (POSIX nuance) |
+| Field splitting on `IFS` | yes | Splits unquoted expansion results, using space/tab/newline when unset; empty `IFS` disables splitting. Assignments and redirection operands remain scalar. |
+| Comments | yes | An unquoted `#` at a token boundary starts a comment; a quoted or embedded `#` stays literal. |
+| Pathname expansion | partial | POSIX glob matching for ordinary patterns, including mixed quoting; retains vlsh’s recursive `**` extension. |
 | Single quotes `'…'` | yes | Literal; see `utils.parse_args` tests |
 | Double quotes `"…"` | yes | Literal except `$` expansion applied in `expand_vars` |
 | Backslash escapes | partial | Escaped quotes, spaces, and operators are preserved; double quotes only remove backslashes before `$`, `"`, `\\`, or newline |
@@ -30,15 +32,16 @@ Legend: **yes** = supported for typical use, **partial** = gaps/edge cases, **no
 | Feature | Status | Notes |
 |--------|--------|--------|
 | `$parameter`, simple names | yes | `expand_vars` |
-| `$?` `$!` `$#` (env-backed / special) | partial | Mapped via environment where applicable |
-| `$0` … `$9` | partial | `$0` from `os.args`; `$1`–`9` via env if set |
+| `$?` and `$#` | yes | Last command status and number of positional parameters. `$!` awaits background execution. |
+| Positional parameters | partial | Script and `-c` arguments, numbered parameters, and `"$@"` preserve boundaries. Further `$@`/ `$*` edge cases remain. |
 | `$$` | yes | Process ID |
 | `${parameter}` | yes | |
-| `${#parameter}` | yes | String length (UTF-8 byte length in V) |
+| `${#parameter}` | partial | Counts Unicode code points; locale-dependent character semantics remain. |
 | `${parameter:-word}` | yes | Unset or empty → `word` |
-| `${parameter:=word}` | yes | Assigns with `os.setenv` when unset or empty |
+| `${parameter:=word}` | yes | Assigns a shell variable when unset or empty |
 | `${parameter:+word}` | yes | Set and non-empty → `word` |
-| `${parameter:?word}` | partial | Prints diagnostic to stderr; returns empty (POSIX may abort) |
+| `${parameter:?word}` | yes | Reports an error and stops the current input. Inside a pipeline, the error stays in that stage. |
+| Colon-free default operators | yes | `${var-word}`, `${var=word}`, `${var+word}`, and `${var?word}` distinguish unset from empty. |
 | `${parameter#pattern}` `${parameter##pattern}` | partial | Glob-style `*` / `?` (no `[]` yet); shortest / longest prefix trim |
 | `${parameter%pattern}` `${parameter%%pattern}` | partial | Same; shortest / longest suffix trim |
 | `${parameter//x/y}` … | no | |
@@ -48,8 +51,10 @@ Legend: **yes** = supported for typical use, **partial** = gaps/edge cases, **no
 
 | Feature | Status | Notes |
 |--------|--------|--------|
-| `&&` `\|\|` `;` lists | yes | `shellops.split_commands` + `main_loop`; malformed lists are rejected before dispatch |
-| Pipelines `\|` | yes | Concurrent OS pipes in `exec`; status is the final stage’s exit code |
+| `&&` `\|\|` `;` lists | yes | `shellops.parse_commands` parses command lists and multiline continuations. |
+| Pipelines `\|` | partial | Concurrent OS pipes; status comes from the final stage. Core builtins run in isolated processes. Negation, `pipefail`, and other builtins remain. |
+| Command lookup failure | yes | 127 when missing, 126 when found but not executable. Shell interpretation after `ENOEXEC` remains unsupported. |
+| Command substitution and arithmetic | no | `$(...)`, backquotes, and `$((...))` remain unsupported. |
 | `if` / `for` / `while` / `case` / functions | no | |
 | Subshells `( )` | no | |
 | Background `&` | no | Job control is not implemented |
@@ -58,21 +63,22 @@ Legend: **yes** = supported for typical use, **partial** = gaps/edge cases, **no
 
 | Feature | Status | Notes |
 |--------|--------|--------|
-| `>`, `>>`, `<` | partial | External commands use file descriptors, including empty input files; `echo` supports output redirection. Multiple redirections are collapsed to the last target per stream. Process substitution `<( )` **no** |
-| `2>&1` | partial | Merges stderr into stdout at the OS descriptor level; order relative to output redirections is not yet modeled |
+| `>`, `>>`, `<`, descriptor duplication and closing | yes | Ordered for builtins and external commands, using descriptors 0–9. Builtins restore descriptors after execution. |
+| `<>`, `>\|`, here-strings | no | Read/write redirection and noclobber override remain unsupported. Here-strings are an extension. |
 | Here-documents `<<` | no | |
 
 ## Builtins (common POSIX)
 
 | Builtin | Status | Notes |
 |---------|--------|--------|
-| `:` / `true` / `false` | partial | External commands on `PATH` typically |
+| `:` / `true` / `false` | yes | `:` is builtin; `true` and `false` are usually external utilities. |
 | `cd` | yes | See README |
 | `echo` | yes | With vlsh variable expansion rules |
-| `export`, `unset` | yes | |
+| `export`, `unset` | partial | Shell-local values, export attributes, and command prefixes are distinct. Some option and error semantics remain. |
 | `exit` | yes | |
 | `read` | no | |
-| `set` / `shift` / `umask` | no | |
+| `set` / `shift` | partial | `set --` replaces positional parameters; `shift [N]` removes parameters. Other `set` options remain. |
+| `umask` | no | |
 
 ## Testing
 
@@ -88,7 +94,7 @@ When adding a POSIX-shaped feature, add a **small test** next to the relevant mo
 ## Next candidates (not yet committed)
 
 - `[]` character classes in `${#/%}` patterns; full pathname-pattern parity
-- Post-expansion field splitting (split expanded words on `IFS` separately from lexer)
-- True empty-`IFS` lexer behaviour vs POSIX
+- Command substitution and arithmetic expansion
+- Compound commands and here-documents
 - `read`, `set -e`-style options (policy decision)
 - More of the XCU §2 grammar with tests ported from public suites

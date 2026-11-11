@@ -1,82 +1,7 @@
 module shellops
 
 import os
-import strings
-
-// ChainPart represents one command in a &&/||/; chain together with the
-// operator that precedes it (empty string for the first command).
-pub struct ChainPart {
-pub:
-	cmd    string
-	pre_op string // '', '&&', '||', ';'
-}
-
-// split_commands splits an input string on &&, ||, and ; operators while
-// respecting single and double quotes.  A lone | is left in the buffer
-// (it is a pipe, handled later by exec).
-pub fn split_commands(input string) []ChainPart {
-	mut parts := []ChainPart{}
-	mut current := strings.new_builder(64)
-	mut in_single := false
-	mut in_double := false
-	mut cur_op := ''
-	mut depth := 0
-	mut i := 0
-	for i < input.len {
-		ch := input[i]
-		if ch == `\\` && !in_single && i + 1 < input.len {
-			current.write_u8(ch)
-			current.write_u8(input[i + 1])
-			i += 2
-			continue
-		}
-		if !in_single && ch == `$` && i + 1 < input.len && input[i + 1] == `{` { depth++ }
-		if depth > 0 {
-			current.write_u8(ch)
-			if ch == `}` { depth-- }
-			i++
-			continue
-		}
-		if ch == `'` && !in_double {
-			in_single = !in_single
-			current.write_u8(ch)
-		} else if ch == `"` && !in_single {
-			in_double = !in_double
-			current.write_u8(ch)
-		} else if !in_single && !in_double {
-			if ch == `&` && i + 1 < input.len && input[i + 1] == `&` {
-				s := current.str().trim_space()
-				if s != '' { parts << ChainPart{ cmd: s, pre_op: cur_op } }
-				current = strings.new_builder(64)
-				cur_op = '&&'
-				i += 2
-				continue
-			} else if ch == `|` && i + 1 < input.len && input[i + 1] == `|` {
-				s := current.str().trim_space()
-				if s != '' { parts << ChainPart{ cmd: s, pre_op: cur_op } }
-				current = strings.new_builder(64)
-				cur_op = '||'
-				i += 2
-				continue
-			} else if ch == `;` {
-				s := current.str().trim_space()
-				if s != '' { parts << ChainPart{ cmd: s, pre_op: cur_op } }
-				current = strings.new_builder(64)
-				cur_op = ';'
-				i++
-				continue
-			} else {
-				current.write_u8(ch)
-			}
-		} else {
-			current.write_u8(ch)
-		}
-		i++
-	}
-	s := current.str().trim_space()
-	if s != '' { parts << ChainPart{ cmd: s, pre_op: cur_op } }
-	return parts
-}
+import utils
 
 // write_redirect writes content to a file (truncate or append mode).
 pub fn write_redirect(path string, content string, append_mode bool) ! {
@@ -88,62 +13,108 @@ pub fn write_redirect(path string, content string, append_mode bool) ! {
 	f.write_string(content)!
 }
 
-// Validate before dispatch so malformed lists never execute a partial command.
-pub fn validate_command_line(input string) ! {
-	mut quote := u8(0)
-	mut depth := 0
-	mut word := false
-	mut last_op := ''
+pub struct RedirectWord {
+pub:
+	operator string
+	target   string
+}
+
+pub struct SimpleCommand {
+pub mut:
+	assignments []string
+	words       []string
+	redirects   []RedirectWord
+}
+
+pub struct ChainPart {
+pub:
+	cmd    string
+	pre_op string
+	stages []SimpleCommand
+}
+
+// parse_commands recognizes lists of pipelines of simple commands. Newlines
+// separate complete commands and continue a pipeline or conditional list.
+pub fn parse_commands(input string) ![]ChainPart {
+	tokens := utils.lex(input)!
+	mut parts := []ChainPart{}
+	mut stages := []SimpleCommand{}
+	mut stage := SimpleCommand{}
+	mut start := 0
+	mut end := 0
+	mut pre_op := ''
+	mut pending_pipe := false
 	mut i := 0
-	for i < input.len {
-		ch := input[i]
-		if ch == `\\` && quote != `'` {
-			if i + 1 >= input.len {
-				return error('syntax error: trailing backslash')
+	for i < tokens.len {
+		token := tokens[i]
+		if !token.operator {
+			if stage.words.len == 0 && utils.is_env_assign(token.text) {
+				stage.assignments << token.text
+			} else {
+				stage.words << token.text
 			}
-			i += 2
-			word = true
-			continue
-		}
-		if quote != 0 {
-			if ch == quote {
-				quote = 0
+		} else if utils.is_redirection(token.text) {
+			if token.text.contains('<<') {
+				return error('syntax error: here-documents are not supported')
+			}
+			i++
+			if i >= tokens.len || tokens[i].operator {
+				return error('syntax error: missing redirection target')
+			}
+			stage.redirects << RedirectWord{ operator: token.text, target: tokens[i].text }
+		} else {
+			has_stage := stage.words.len > 0 || stage.assignments.len > 0 || stage.redirects.len > 0
+			match token.text {
+				'|' {
+					if !has_stage {
+						return error('syntax error: missing pipeline stage')
+					}
+					stages << stage
+					stage = SimpleCommand{}
+					pending_pipe = true
+				}
+				';', '&&', '||', '\n' {
+					if !has_stage {
+						if token.text != '\n' {
+							return error('syntax error: missing command')
+						}
+						if !pending_pipe {
+							start = token.end
+						}
+						i++
+						continue
+					}
+					stages << stage
+					parts << ChainPart{ cmd: input[start..end].trim_space(), pre_op: pre_op, stages: stages }
+					stages = []
+					stage = SimpleCommand{}
+					pre_op = if token.text == '\n' { ';' } else { token.text }
+					pending_pipe = false
+					start = token.end
+				}
+				else { return error('syntax error: unsupported operator ${token.text}') }
 			}
 			i++
 			continue
 		}
-		if ch == `'` || ch == `"` {
-			quote = ch
-			word = true
-			i++
-			continue
-		}
-		if ch == `$` && i + 1 < input.len && input[i + 1] == `{` { depth++ }
-		if depth > 0 {
-			if ch == `}` { depth-- }
-			word = true
-			i++
-			continue
-		}
-		if ch == `;` || ch == `|` || (ch == `&` && i + 1 < input.len && input[i + 1] == `&`) {
-			if !word {
-				return error('syntax error: missing command')
-			}
-			last_op = ch.ascii_str()
-			if i + 1 < input.len && input[i + 1] == ch && ch != `;` {
-				last_op += ch.ascii_str()
-				i++
-			}
-			word = false
-		} else if ch != ` ` && ch != `\t` && ch != `\n` && ch != `\r` {
-			word = true
-		}
+		end = tokens[i].end
+		pending_pipe = false
 		i++
 	}
-	if quote != 0 || depth != 0 {
-		return error('syntax error: unterminated quote or parameter expansion')
-	}
-	if !word && last_op != '' && last_op != ';' {
+	if stage.words.len > 0 || stage.assignments.len > 0 || stage.redirects.len > 0 {
+		stages << stage
+		parts << ChainPart{ cmd: input[start..end].trim_space(), pre_op: pre_op, stages: stages }
+	} else if pending_pipe || pre_op in ['&&', '||'] {
 		return error('syntax error: missing command')
 	}
+	return parts
+}
+
+pub fn split_commands(input string) []ChainPart {
+	parts := parse_commands(input) or { return [] }
+	return parts.map(ChainPart{ cmd: it.cmd, pre_op: it.pre_op })
+}
+
+pub fn validate_command_line(input string) ! {
+	_ := parse_commands(input)!
 }

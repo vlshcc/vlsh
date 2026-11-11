@@ -1,5 +1,15 @@
 ## Unreleased — 2026-11-03
 
+### POSIX compatibility
+
+- Recognize inline comments and multiline command lists. Apply `IFS` to
+  unquoted expansion results before pathname expansion.
+- Keep ordinary assignments local until exported, and support script and `-c`
+  positional arguments, `set --`, and `shift`.
+- Apply redirections in order for builtins and external commands. Isolate core
+  builtins and expansion side effects inside pipelines.
+- Return 127 for missing commands and 126 for commands found but not executable.
+
 ### Shell stability
 
 - Run pipeline stages concurrently with OS pipes; preserve empty input, stderr,
