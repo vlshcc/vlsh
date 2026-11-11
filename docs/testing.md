@@ -5,6 +5,8 @@ builds a fresh shell for `tests/test_shell.py`, which uses Python 3's standard
 library. The temporary test binary is removed after the integration run.
 Use `make test-unit`, `make test-install`, `make test-packaging`, or `make test-integration` to run each layer separately.
 Override the compiler with `make test V=/path/to/v` and Python with `PYTHON=python3`.
+When comparing V toolchains, unset an inherited `VEXE` or set it to the same
+compiler path; V uses it to locate its standard library and helper tools.
 
 Integration tests run in temporary directories with a temporary HOME. They cover
 quoting and empty arguments, comments, field splitting, positional parameters,

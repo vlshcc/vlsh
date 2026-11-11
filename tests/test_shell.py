@@ -246,6 +246,17 @@ class ShellTests(unittest.TestCase):
         self.assertEqual((code, out), (2, ''))
         self.assertIn('VLSH_X: required', err)
 
+    def test_shift_default_and_invalid_counts(self):
+        self.assert_shell('set -- first second; shift; echo "$#:$1"', '1:second\n')
+        for command in ('shift', 'shift ""', 'shift invalid', 'shift -1',
+                        'shift 1 2', 'shift 999999999999999999999999999999'):
+            with self.subTest(command=command):
+                code, out, err = self.run_shell(command)
+                self.assertEqual((code, out), (1, ''))
+                self.assertIn('shift:', err)
+                self.assertNotIn('panic', err)
+        self.assert_shell('set -- first; shift 0; echo "$#:$1"', '1:first\n')
+
     def test_redirections_are_ordered_for_external_commands(self):
         self.assert_shell(
             """sh -c 'printf out; printf err >&2' 2>&1 > first; """

@@ -1,6 +1,7 @@
 module main
 
 import os
+import strconv
 import term
 import cfg
 import cmds
@@ -152,7 +153,10 @@ fn main() {
 			'--builtin-stage' {
 				if os.args.len < 4 || !pipeline_builtin(os.args[3]) { exit(2) }
 				mut loaded := []plugins.Plugin{}
-				mut vars := utils.Variables{ arg0: os.args[0], status: os.args[2].int() }
+				mut vars := utils.Variables{
+					arg0:   os.args[0]
+					status: os.args[2].int()
+				}
 				exit(dispatch_cmd(os.args[3], os.args[4..], mut loaded, '', mut vars))
 			}
 			else {
@@ -178,7 +182,9 @@ fn main() {
 		return tab_complete(input, loaded_plugins)
 	}
 	load_history(mut r)
-	mut vars := utils.Variables{ arg0: os.args[0] }
+	mut vars := utils.Variables{
+		arg0: os.args[0]
+	}
 	source_rc(mut loaded_plugins, mut vars)
 	mut history_entries := utils.load_history_entries_from_file()
 	mut last_executed_command := ''
@@ -199,7 +205,8 @@ fn main() {
 		trimmed := cmd.str().trim_space()
 		mut expanded := trimmed
 		if trimmed.len > 0 {
-			expanded = utils.expand_history_notation(trimmed, last_executed_command, history_entries) or {
+			expanded = utils.expand_history_notation(trimmed, last_executed_command,
+				history_entries) or {
 				eprintln('vlsh: ${err.msg()}')
 				continue
 			}
@@ -220,7 +227,10 @@ fn main() {
 
 fn run_script(content string, arg0 string, args []string) int {
 	mut loaded := []plugins.Plugin{}
-	mut vars := utils.Variables{ arg0: arg0, args: args }
+	mut vars := utils.Variables{
+		arg0: arg0
+		args: args
+	}
 	return evaluate(content, mut loaded, mut vars)
 }
 
@@ -388,9 +398,25 @@ fn dispatch_cmd(cmd string, args []string, mut loaded_plugins []plugins.Plugin, 
 			vars.args = args[1..].clone()
 		}
 		'shift' {
-			count := if args.len == 0 { 1 } else { args[0].int() }
-			if args.len > 1 || (args.len == 1 && (args[0].len == 0
-				|| !args[0].bytes().all(it.is_digit()))) || !vars.shift(count) {
+			if args.len > 1 {
+				utils.fail('shift: expected at most one count')
+				return 1
+			}
+			mut count := 1
+			if args.len == 1 {
+				// V 0.5.2 hoists collection expressions out of boolean guards.
+				// Read the argument only after checking that it exists.
+				raw := args[0]
+				if raw.len == 0 || !raw.bytes().all(it.is_digit()) {
+					utils.fail('shift: invalid count')
+					return 1
+				}
+				count = strconv.atoi(raw) or {
+					utils.fail('shift: invalid count')
+					return 1
+				}
+			}
+			if !vars.shift(count) {
 				utils.fail('shift: invalid count or too few positional parameters')
 				return 1
 			}
@@ -419,7 +445,9 @@ fn dispatch_cmd(cmd string, args []string, mut loaded_plugins []plugins.Plugin, 
 		'ls' {
 			cmds.ls(args) or {
 				if err.msg() == '__fallthrough__' {
-					return run_external([exec.Cmd_object{ cmd: cmd, args: args, search_path: vars.get('PATH') }], full_cmdline, loaded_plugins)
+					return run_external([
+						exec.Cmd_object{ cmd: cmd, args: args, search_path: vars.get('PATH') },
+					], full_cmdline, loaded_plugins)
 				}
 				utils.fail(err.msg())
 				return 1
@@ -635,5 +663,6 @@ fn dispatch_cmd(cmd string, args []string, mut loaded_plugins []plugins.Plugin, 
 			return 127
 		}
 	}
+
 	return 0
 }
