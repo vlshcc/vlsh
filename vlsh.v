@@ -12,7 +12,7 @@ import utils
 
 // Human release line (bump when you cut a release). Unreleased builds from git
 // get a compile-time suffix: `make` / pkg/build.sh pass `-d git_sha=<short>`.
-const version_base = '1.2'
+const version_base = '1.2.1'
 const git_revision = $d('git_sha', '')
 const version = if git_revision != '' { '${version_base}-${git_revision}' } else { version_base }
 

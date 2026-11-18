@@ -288,7 +288,6 @@ fn vlsh_completion_clear(mut r VlshReadline) {
 }
 
 fn vlsh_eof(mut r VlshReadline) bool {
-	r.previous_lines.insert(1, r.current)
 	r.cursor = r.current.len
 	if r.is_tty {
 		vlsh_refresh_line(mut r)
@@ -367,7 +366,6 @@ fn vlsh_delete_line(mut r VlshReadline) {
 }
 
 fn vlsh_commit_line(mut r VlshReadline) bool {
-	r.previous_lines.insert(1, r.current)
 	r.cursor = r.current.len
 	if r.is_tty {
 		vlsh_refresh_line(mut r)
@@ -679,6 +677,9 @@ fn vlsh_execute(mut r VlshReadline, a VlshAction, c int) bool {
 // vlsh_read_line is a drop-in replacement for r.read_line(prompt) that fixes
 // the Backspace-at-column-0 bug without modifying vlib.
 fn vlsh_read_line(mut r VlshReadline, prompt string) !string {
+	mut prefix := ''
+	mut continuing := false
+	mut continuation_eof := false
 	r.current = []rune{}
 	r.cursor = 0
 	r.prompt = prompt
@@ -708,12 +709,41 @@ fn vlsh_read_line(mut r VlshReadline, prompt string) !string {
 			vlsh_execute(mut r, a, ch)
 		}
 		if done {
+			if a == .commit_line {
+				line := prefix + r.current[..r.current.len - 1].string()
+				mut needs_continuation := false
+				// Use the lexer so quoted/escaped backslashes and comments keep
+				// their usual meaning. Do this before trimming any whitespace.
+				_ := utils.lex(line) or {
+					needs_continuation = err.msg() == 'syntax error: trailing backslash'
+					[]utils.LexToken{}
+				}
+				if needs_continuation {
+					// Remove backslash-newline without adding a word separator.
+					// The joined command also fits the single-line history format.
+					prefix = line[..line.len - 1]
+					continuing = true
+					r.current = []rune{}
+					r.cursor = 0
+					r.cursor_row_offset = 0
+					r.search_index = 0
+					r.prompt = '> '
+					r.prompt_offset = 0
+					print(r.prompt)
+					continue
+				}
+			} else if a == .eof && continuing {
+				continuation_eof = true
+			}
 			break
 		}
 	}
 	r.previous_lines[0] = []rune{}
 	r.search_index = 0
 	r.disable_raw_mode()
+	if continuation_eof {
+		return error('syntax error: unexpected end of input after line continuation')
+	}
 	// Ctrl+C leaves a sentinel rune(3) so we can distinguish it from an
 	// empty Enter press (both result in a short r.current after the loop).
 	if r.current.len == 1 && r.current[0] == rune(3) {
@@ -725,5 +755,7 @@ fn vlsh_read_line(mut r VlshReadline, prompt string) !string {
 	if r.current.last() == `\n` {
 		r.current.pop()
 	}
-	return r.current.string()
+	line := prefix + r.current.string()
+	r.previous_lines.insert(1, line.runes())
+	return line
 }

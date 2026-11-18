@@ -11,6 +11,7 @@ import sys
 import tempfile
 import time
 import unittest
+from contextlib import contextmanager
 
 SHELL = str(Path(sys.argv.pop(1) if len(sys.argv) > 1 else './vlsh').resolve())
 
@@ -293,33 +294,30 @@ class ShellTests(unittest.TestCase):
         self.assertIn('VLSH_Y: missing', result[2])
         self.assert_shell('false; true | exit', code=1)
 
-    def test_interactive_cancel_and_terminal_restore(self):
+    @contextmanager
+    def interactive_shell(self):
         pid, master = pty.fork()
         if pid == 0:
             os.chdir(self.cwd)
             os.execve(SHELL, [SHELL], self.env)
         reaped = False
+        pending = b''
 
         def read_until(expected):
-            output = b''
+            nonlocal pending
             deadline = time.monotonic() + 5
-            while expected not in output:
+            while expected not in pending:
                 if time.monotonic() >= deadline:
-                    self.fail(f'interactive shell stalled: {output!r}')
+                    self.fail(f'interactive shell stalled: {pending!r}')
                 if select.select([master], [], [], 0.1)[0]:
-                    output += os.read(master, 8192)
+                    pending += os.read(master, 8192)
+            end = pending.index(expected) + len(expected)
+            output, pending = pending[:end], pending[end:]
             return output
 
         try:
             read_until(b'- ')
-            os.write(master, b'echo cancelled')
-            # Wait until readline has consumed the pending input before Ctrl+C.
-            read_until(b'cancelled')
-            os.write(master, b'\x03')
-            read_until(b'- ')
-            os.write(master, b'echo interactive\r')
-            output = read_until(b'\r\ninteractive\r\n')
-            self.assertIn(b'\r\ninteractive\r\n', output)
+            yield master, read_until
             os.write(master, b'exit\r')
             deadline = time.monotonic() + 5
             while time.monotonic() < deadline:
@@ -338,6 +336,81 @@ class ShellTests(unittest.TestCase):
                 os.kill(pid, signal.SIGKILL)
                 os.waitpid(pid, 0)
             os.close(master)
+
+    def test_interactive_cancel_and_terminal_restore(self):
+        with self.interactive_shell() as (master, read_until):
+            os.write(master, b'echo cancelled')
+            # Wait until readline has consumed the pending input before Ctrl+C.
+            read_until(b'cancelled')
+            os.write(master, b'\x03')
+            read_until(b'- ')
+            os.write(master, b'echo interactive\r')
+            read_until(b'\r\ninteractive\r\n')
+
+    def test_interactive_find_with_backslash_continuation(self):
+        for name in ('Warcraft III', 'games/FOREVER', 'unrelated'):
+            (self.cwd / name).mkdir(parents=True)
+        (self.cwd / 'warcraft-file').touch()
+        first = 'find "$HOME" -maxdepth 6 -type d '
+        second = r"  \( -iname '*warcraft*' -o -iname '*forever*' \) 2>/dev/null"
+        command = first + second
+        with self.interactive_shell() as (master, read_until):
+            # Paste both physical lines together, as in the reported command.
+            os.write(master, (first + '\\\r' + second + '\r').encode())
+            output = read_until(b'\r\n> ')
+            self.assertNotIn(b'syntax error', output)
+            output = read_until(b'- ')
+            self.assertIn(f'\r\n{self.cwd}/Warcraft III\r\n'.encode(), output)
+            self.assertIn(f'\r\n{self.cwd}/games/FOREVER\r\n'.encode(), output)
+            self.assertNotIn(f'\r\n{self.cwd}/unrelated\r\n'.encode(), output)
+            # Up-arrow and persisted history should recall the whole command.
+            os.write(master, b'\x1b[A\r')
+            read_until(f'\r\n{self.cwd}/Warcraft III\r\n'.encode())
+            read_until(b'- ')
+        self.assertEqual((self.cwd / '.vlsh_history').read_text().splitlines(),
+                         [command.strip(), command.strip(), 'exit'])
+
+    def test_interactive_continuations_join_without_inserting_spaces(self):
+        with self.interactive_shell() as (master, read_until):
+            for line in (b'echo con\\\r', b'tin\\\r'):
+                os.write(master, line)
+                read_until(b'\r\n> ')
+            os.write(master, b'ued\r')
+            read_until(b'\r\ncontinued\r\n')
+            read_until(b'- ')
+            os.write(master, b'echo "dou\\\r')
+            read_until(b'\r\n> ')
+            os.write(master, b'ble"\r')
+            read_until(b'\r\ndouble\r\n')
+            read_until(b'- ')
+            # Escaped backslashes and backslashes in comments stay complete.
+            os.write(master, b'echo done\\\\\r')
+            read_until(b'\r\ndone\\\r\n')
+            read_until(b'- ')
+            os.write(master, b'echo comment # \\\r')
+            read_until(b'\r\ncomment\r\n')
+            read_until(b'- ')
+            os.write(master, b"echo 'literal\\'\r")
+            read_until(b'\r\nliteral\\\r\n')
+
+    def test_interactive_cancel_discards_pending_continuation(self):
+        with self.interactive_shell() as (master, read_until):
+            os.write(master, b'echo cancelled > unwanted\\\r')
+            read_until(b'\r\n> ')
+            os.write(master, b'\x03')
+            read_until(b'- ')
+            os.write(master, b'echo survived\r')
+            read_until(b'\r\nsurvived\r\n')
+        self.assertFalse((self.cwd / 'unwanted').exists())
+        self.assertNotIn('cancelled', (self.cwd / '.vlsh_history').read_text())
+
+    def test_interactive_eof_discards_pending_continuation(self):
+        with self.interactive_shell() as (master, read_until):
+            os.write(master, b'echo incomplete > unwanted\\\r')
+            read_until(b'\r\n> ')
+            os.write(master, b'\x04')
+            read_until(b'unexpected end of input after line continuation')
+        self.assertFalse((self.cwd / 'unwanted').exists())
 
     def test_sigint_kills_child_and_shell_can_continue(self):
         # Send to the foreground group, as a terminal does on Ctrl+C.

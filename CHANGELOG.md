@@ -1,4 +1,4 @@
-## Unreleased — 2026-11-03
+## 2026-11-18 — version 1.2.1
 
 ### POSIX compatibility
 
@@ -12,6 +12,8 @@
 
 ### Shell stability
 
+- Continue interactive commands after a trailing backslash, including pasted
+  multiline commands; recall and save the joined command as one history entry.
 - Run pipeline stages concurrently with OS pipes; preserve empty input, stderr,
   final-stage exit status, and signal handling without buffering between stages.
 - Parse command words once, retaining quoted operators, empty arguments, escapes,

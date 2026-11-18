@@ -16,8 +16,9 @@ class PackagingTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         shutil.copytree(REPO / 'pkg', self.root / 'pkg')
-        for name in ('v.mod', 'Makefile'):
-            shutil.copy2(REPO / name, self.root / name)
+        shutil.copy2(REPO / 'Makefile', self.root / 'Makefile')
+        # Keep the fixture version stable when the project's release changes.
+        (self.root / 'v.mod').write_text("Module {\n\tversion: '1.2.0'\n}\n")
         self.bin = self.root / 'tools'
         self.bin.mkdir()
         self.work = self.root / 'temp space'

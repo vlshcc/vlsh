@@ -45,5 +45,4 @@ Validation status
 These are draft port templates. The distinfo entries still contain placeholders;
 regenerate them on FreeBSD before using or submitting the port. CI verifies Linux
 with V 0.5.2; verify the native lang/v compiler separately. The published GitHub
-release tag is v1.2, while package metadata is 1.2.0: choose the intended source
-revision explicitly when preparing the port rather than assuming a v1.2.0 tag.
+release tag and package metadata both use 1.2.1.

@@ -47,39 +47,36 @@ to read, modify, and extend.
 
 ### Pre-built packages (recommended)
 
-The latest published release is **v1.2** (package version **1.2.0**). The Linux
-`.deb` and standalone binary are available on the
-[releases page](https://github.com/vlshcc/vlsh/releases/tag/v1.2).
-The behavior documented below follows the current `main` branch; build from
-source for the unreleased stability and packaging fixes in [CHANGELOG.md](CHANGELOG.md).
+The latest published release is **v1.2.1** (package version **1.2.1**). Linux
+`.deb` and `.rpm` packages, a standalone Linux binary, and cross-compiled
+FreeBSD and DragonFly binaries are available on the
+[releases page](https://github.com/vlshcc/vlsh/releases/tag/v1.2.1).
+This release includes the POSIX, stability, packaging, and interactive line
+continuation fixes described in [CHANGELOG.md](CHANGELOG.md).
 
 **Debian / Ubuntu — install via `.deb`:**
 
 ```sh
-curl -LO https://github.com/vlshcc/vlsh/releases/download/v1.2/vlsh_1.2.0_amd64.deb
-sudo dpkg -i vlsh_1.2.0_amd64.deb
+curl -LO https://github.com/vlshcc/vlsh/releases/download/v1.2.1/vlsh_1.2.1_amd64.deb
+sudo dpkg -i vlsh_1.2.1_amd64.deb
 ```
 
 The package installs the binary to `/usr/bin/vlsh` and automatically adds it
 to `/etc/shells` via the postinst script.
 
-**Fedora / RHEL — build an `.rpm` from source:**
-
-The published release has no RPM asset. With V and `rpmbuild` installed:
+**Fedora / RHEL — install the `.rpm`:**
 
 ```sh
-git clone https://github.com/vlshcc/vlsh.git
-cd vlsh
-make dist-rpm
-sudo rpm -U builds/vlsh-1.2.0-1.*.rpm
+curl -LO https://github.com/vlshcc/vlsh/releases/download/v1.2.1/vlsh-1.2.1-1.x86_64.rpm
+sudo rpm -U vlsh-1.2.1-1.x86_64.rpm
 ```
 
 **Other Linux — standalone binary:**
 
 ```sh
-curl -LO https://github.com/vlshcc/vlsh/releases/download/v1.2/vlsh_1.2.0_amd64_linux
-chmod +x vlsh_1.2.0_amd64_linux
-sudo mv vlsh_1.2.0_amd64_linux /usr/local/bin/vlsh
+curl -LO https://github.com/vlshcc/vlsh/releases/download/v1.2.1/vlsh_1.2.1_amd64_linux
+chmod +x vlsh_1.2.1_amd64_linux
+sudo mv vlsh_1.2.1_amd64_linux /usr/local/bin/vlsh
 ```
 
 ### Prerequisites (from source)
@@ -138,6 +135,10 @@ startup exports, and automatic plugin loading. Existing aliases are read from
 pipelines, conditional lists, quoted words, and backslash continuations. An
 unquoted `#` at the start of a token introduces a comment. The shell supports
 the simple-command subset described below.
+
+At the interactive prompt, a trailing unescaped backslash continues the command
+on the next line with a `> ` prompt. vlsh joins the lines before execution and
+stores the complete command as one history entry. Ctrl+C cancels the whole command.
 
 ### System-wide install
 

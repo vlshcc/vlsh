@@ -67,5 +67,5 @@ Validation status
 -----------------
 
 The port files are drafts; native build and package checks remain required.
-CI uses V 0.5.2 on Linux. The published release tag is v1.2, while package
-metadata is 1.2.0: update the port to use the intended source revision explicitly.
+CI uses V 0.5.2 on Linux. The published release tag and package metadata both
+use 1.2.1.

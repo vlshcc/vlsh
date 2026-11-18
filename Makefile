@@ -4,7 +4,7 @@ PREFIX ?= /usr/local
 PYTHON ?= python3
 SHELLS_FILE ?= /etc/shells
 REGISTER_SHELL ?= 1
-# Embed `git rev-parse --short` in the reported version (1.2-<sha>); empty if not a git checkout.
+# Embed `git rev-parse --short` in the reported version (1.2.1-<sha>); empty if not a git checkout.
 GIT_SHA := $(shell git rev-parse --short HEAD 2>/dev/null)
 V_GIT := $(if $(GIT_SHA),-d git_sha=$(GIT_SHA))
 # Default for `make fuzz` (override: make fuzz FUZZ_ITER=200000).
