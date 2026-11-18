@@ -26,6 +26,8 @@
 
 ### Installation and packaging
 
+- Fix DragonFly cross-compilation with V 0.5.2, including stdio declarations,
+  sysroot library symlinks, and linker search paths.
 - Install the already-built binary without requiring V in sudo's PATH; register
   the configured path in `/etc/shells` once. Staging skips registration.
 - Honor selected distribution formats, `DIST_FLAGS`, and compiler overrides;

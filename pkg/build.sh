@@ -185,6 +185,16 @@ if [ "$TARGET_OS" = "dragonfly" ]; then
         echo "    Sysroot ready at ${DFBSD_SYSROOT}"
     fi
 
+    # The ISO contains absolute library symlinks. Keep them inside the sysroot
+    # instead of resolving them against the build host's /lib directory.
+    find "$DFBSD_SYSROOT/usr/lib" "$DFBSD_SYSROOT/lib" -type l | while IFS= read -r link; do
+        target=$(readlink "$link")
+        case "$target" in
+            "$DFBSD_SYSROOT"/*) ;;
+            /*) ln -sf "${DFBSD_SYSROOT}${target}" "$link" ;;
+        esac
+    done
+
     # V's thirdparty object compilation hardcodes 'cc', so we prepend a
     # wrapper directory where 'cc' is a symlink to clang.
     CCWRAP=$(mktemp -d)
@@ -211,12 +221,13 @@ if [ "$TARGET_OS" = "dragonfly" ]; then
     fi
 
     rm -rf "$HOME/.vmodules/.cache"
-    PATH="$CCWRAP:$PATH" \
-    VCROSS_COMPILER_NAME="clang" \
     # V's -prod enables -flto which clang can't use for the dragonfly
     # target linker.  Instead we pass equivalent optimization flags manually.
-    CFLAGS="--target=x86_64-unknown-dragonfly --sysroot=${DFBSD_SYSROOT} -I${DFBSD_SYSROOT}/usr/include -I${V_GC_INC} -fuse-ld=lld -O2 -DNDEBUG" \
-    LDFLAGS="--target=x86_64-unknown-dragonfly --sysroot=${DFBSD_SYSROOT} -fuse-ld=lld" \
+    # V 0.5.2 forward-declares FreeBSD's FILE tag; DragonFly uses __FILE.
+    PATH="$CCWRAP:$PATH" \
+    VCROSS_COMPILER_NAME="clang" \
+    CFLAGS="--target=x86_64-unknown-dragonfly --sysroot=${DFBSD_SYSROOT} -I${DFBSD_SYSROOT}/usr/include -I${V_GC_INC} -D__sFILE=__FILE -fuse-ld=lld -O2 -DNDEBUG" \
+    LDFLAGS="--target=x86_64-unknown-dragonfly --sysroot=${DFBSD_SYSROOT} -fuse-ld=lld -B${DFBSD_SYSROOT}/usr/lib -B${DFBSD_SYSROOT}/usr/lib/gcc80 -L${DFBSD_SYSROOT}/usr/lib -L${DFBSD_SYSROOT}/usr/lib/gcc80 -L${DFBSD_SYSROOT}/lib" \
         "$V" -cc clang -os dragonfly $V_GIT_SHA_FLAG .
 
     mkdir -p builds
